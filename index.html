@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <meta name="description" content="QiMulti pill optimizer for alchemists — find the best craftable set from your inventory.">
+  <title>⚗️ Qi Optimizer — Alchemist</title>
+
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  
+  <link rel="stylesheet" href="css/style.css?v=2.2">
+  <script>/* GTM removed for self-hosting; shim keeps inline dataLayer.push() handlers harmless */ window.dataLayer = window.dataLayer || [];</script>
+</head>
+<body>
+<div id="splash-screen" class="splash-screen">
+  
+  <img src="assets/welcome.jpg" alt="Background" class="splash-bg">
+  
+  <div class="splash-content">
+    <h1 class="splash-title">The Way of Alchemy</h1>
+    <button id="enter-btn" class="btn btn-primary splash-btn">Enter the Forge</button>
+  </div>
+  
+</div>
+<canvas id="bubble-canvas"></canvas>
+<header>
+  <div class="logo">⚗️ Qi Multi Optimizer</div>
+  <div class="subtitle">Dao of Alchemy — Best Pill Set</div>
+</header>
+
+<main>
+
+  <div class="section-title">🌿 Plant Inventory</div>
+
+  <div class="toolbar">
+    <input
+      type="text"
+      id="search-plant"
+      class="search-input"
+      placeholder="🔍 Search for a plant..."
+      autocomplete="off"
+      autocorrect="off"
+      spellcheck="false"
+    >
+    <button class="btn btn-vision-btn" id="btn-vision" title="Autofill from a screenshot of your in-game inventory (or paste with Cmd+V)">📸 Autofill from Screenshot</button>
+    <input type="file" id="vision-file-input" accept="image/*" style="display:none">
+    <button class="btn" id="btn-clear" onclick="dataLayer.push({'event': 'click_clear_all'});">Clear All</button>
+  </div>
+  <div class="vision-status-row"><span id="vision-status"></span></div>
+  <div class="filter-row">
+  <span class="filter-label" style="margin-left: 10px;">Min Qi:</span>
+  <input type="number" id="filter-qi" class="duration-filter" value="100" min="0" step="5">
+  <span class="filter-unit">%</span>
+  
+  <span class="filter-label">Min Duration:</span>
+  <input type="number" id="filter-duration" class="duration-filter" value="0" min="0" step="10">
+  <span class="filter-unit">seconds</span>
+
+  <span class="filter-label" style="margin-left: 10px;">Max Pills:</span>
+  <input type="number" id="filter-max-pills" class="duration-filter" placeholder="∞" min="1" oninput="updateResultsTitle()">
+  
+  <span class="filter-label" style="margin-left: 10px;">Stats:</span>
+    <select id="filter-calc-mode" class="duration-filter" style="width: auto;">
+      <option value="alchemist">Alchemist</option>
+      <option value="handcrafted">Handcrafted</option>
+    </select>
+  </div>
+
+  <div id="inventory-grid"></div>
+
+  <div style="text-align:center; margin: 1.2rem 0;">
+    <button class="btn btn-primary" id="btn-optimize" onclick="dataLayer.push({'event': 'click_optimize'});">⚗️ Optimize QiMulti</button>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section-title">
+    <span id="results-title-text">✨ Best Set — QiMulti ≥ 100% | Min Duration ≥ 0s</span>
+    <button class="btn" id="btn-clear-results" style="margin-left: auto; font-size: 0.7rem;" onclick="dataLayer.push({'event': 'click_clear_recipes'});">Clear Recipes</button>
+  </div>
+  <div id="results-summary"></div>
+  <div id="results"></div>
+
+</main>
+
+<footer class="site-footer">
+  <div class="divider"></div>
+  <div class="footer-content">
+    <div class="footer-actions">
+      <a href="https://github.com/hitghul/alchemy-tool" target="_blank" class="footer-link">⭐ Star on GitHub</a>
+      <a href="https://github.com/hitghul/alchemy-tool/issues" target="_blank" class="footer-link">🛠️ Request Update / Report Bug</a>
+    </div>
+    <p class="footer-credits">Forged by the Great Sage Hitghul — For the Alchemy Community</p>
+  </div>
+</footer>
+
+<script src="js/audio.js?v=2.3"></script>
+<script src="js/data.js?v=2.3"></script>
+<script src="js/alchemy.js?v=2.3"></script>
+<script src="js/optimizer.js?v=2.3"></script>
+<script src="js/vision.js?v=2.3"></script>
+<script src="js/copilot.js?v=2.3"></script>
+<script src="js/ui.js?v=2.3"></script>
+<script src="vendor/tesseract.min.js?v=1"></script>
+</body>
+</html>

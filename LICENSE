@@ -1,0 +1,28 @@
+DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE
+                    Version 2, December 2004
+
+Copyright (C) 2004 Sam Hocevar <sam@hocevar.net>
+
+Everyone is permitted to copy and distribute verbatim or modified
+copies of this license document, and changing it is allowed as long
+as the name is changed.
+
+            DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE
+   TERMS AND CONDITIONS FOR COPYING, DISTRIBUTION AND MODIFICATION
+
+  0. You just DO WHAT THE FUCK YOU WANT TO.
+
+---
+
+Attribution notice:
+
+This project is a fork of "QiMulti Optimizer for Chasing Immortality"
+(https://github.com/Hitghul/alchemy-tool) by Hitghul, released under
+the WTFPL. The original derivation engine, optimiser, game data, and
+UI design are Hitghul's work.
+
+The screenshot-OCR autofill and craft copilot additions in this fork
+are also released under the WTFPL.
+
+Tesseract.js (in vendor/) is licensed under the Apache License 2.0 —
+see https://github.com/naptha/tesseract.js
