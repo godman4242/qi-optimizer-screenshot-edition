@@ -158,9 +158,13 @@ function hasConflict(newPill, currentSet, ignoreIndex) {
 
 function arePillsSimilar(p1, p2) {
   if (p1.basePill !== p2.basePill) return false;
-  for (const dur of p1.predictedDurations) {
-    // restored-from-localStorage pills have no Set (JSON drops it) — treat as no overlap
-    if (!(p2.predictedDurations instanceof Set) || p2.predictedDurations.has(dur)) continue;
+  // Restored-from-localStorage pills may have no Set (JSON drops it) — if either
+  // side lacks a Set we can't prove overlap, so fall back to same-basePill ⇒ similar.
+  const d1 = (p1.predictedDurations instanceof Set) ? p1.predictedDurations : null;
+  const d2 = (p2.predictedDurations instanceof Set) ? p2.predictedDurations : null;
+  if (!d1 || !d2) return true; // same base pill, unknown durations — be safe, treat as conflict
+  for (const dur of d1) {
+    if (d2.has(dur)) return true; // overlap found ⇒ similar
   }
   return false;
 }

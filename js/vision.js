@@ -12,6 +12,7 @@
 // ------------------------------------------------------------
 let visionWorker = null;
 let visionWorkerReady = false;
+let visionWorkerReadyPromise = null; // single-flight: warmup + first import share one createWorker()
 
 // Batch guard: no overlapping runs — new picks/pastes during an
 // active batch are ignored (single-flight, not queued).
@@ -275,18 +276,12 @@ async function runVisionImport(files) {
       const n = i + 1;
       try {
         const canvas = await preprocessImage(file);
-        const { data: { text } } = await worker.recognize(canvas, {
-          // Per-image progress while this recognize() runs
-          logger: m => {
-            if (m.status === 'recognizing text' && statusEl) {
-              statusEl.textContent = `Reading screenshot ${n} of ${list.length}… ${Math.round((m.progress || 0) * 100)}%`;
-            }
-          }
-        });
+        const { data: { text } } = await worker.recognize(canvas); // NOTE: no options arg — tesseract.js v7 forwards recognize() options verbatim into postMessage, and a logger function is not structured-cloneable → DataCloneError on every image. Per-image progress is approximated by the batch runner's per-image status instead.
         const found = parseOcrLines(text);
         for (const [name, qty] of Object.entries(found)) {
           totals[name] = (totals[name] || 0) + qty;
         }
+        if (statusEl) statusEl.textContent = `Reading screenshot ${n} of ${list.length} — done`;
       } catch (err) {
         failed++;
         console.error(`Vision import failed for image ${n} of ${list.length}:`, err);
@@ -321,6 +316,29 @@ async function runVisionImport(files) {
   }
 }
 
+// Pre-warm the OCR engine so the first paste/click doesn't sit through the
+// ~9 MB cold load. Runs when the page is idle; skipped for data-saver/offline.
+// Single-flight: runVisionImport awaits this same promise, so there is never
+// more than one createWorker() call in flight.
+function warmUpVision() {
+  const conn = navigator.connection || {};
+  if (conn.saveData || navigator.onLine === false) return;
+  const statusEl = document.getElementById(VISION_STATUS_ID);
+  if (statusEl) statusEl.textContent = '⏳ Pre-loading OCR engine…';
+  visionWorkerReadyPromise = ensureVisionWorker((msg) => {
+    if (statusEl) statusEl.textContent = `⏳ ${msg}`;
+  }).then((worker) => {
+    if (statusEl) statusEl.textContent = '✅ OCR ready — paste screenshots anytime';
+    setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 4000);
+    return worker;
+  }).catch((err) => {
+    // Warmup failure is non-fatal: the lazy path in runVisionImport will retry.
+    console.warn('Vision warmup failed (will retry on first paste):', err);
+    visionWorkerReadyPromise = null;
+    if (statusEl) statusEl.textContent = '';
+  });
+}
+
 // Init: wire up the hidden file input
 function initVision() {
   const input = document.getElementById('vision-file-input');
@@ -348,4 +366,12 @@ function initVision() {
       runVisionImport(pasted);
     }
   });
+
+  // Pre-warm once the page is idle (fallback timer for browsers without rIC)
+  const startWarmup = () => { if (!visionWorkerReady) warmUpVision(); };
+  if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback(startWarmup, { timeout: 3000 });
+  } else {
+    setTimeout(startWarmup, 2000);
+  }
 }
