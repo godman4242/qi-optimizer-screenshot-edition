@@ -159,7 +159,8 @@ function hasConflict(newPill, currentSet, ignoreIndex) {
 function arePillsSimilar(p1, p2) {
   if (p1.basePill !== p2.basePill) return false;
   for (const dur of p1.predictedDurations) {
-    if (p2.predictedDurations.has(dur)) return true;
+    // restored-from-localStorage pills have no Set (JSON drops it) — treat as no overlap
+    if (!(p2.predictedDurations instanceof Set) || p2.predictedDurations.has(dur)) continue;
   }
   return false;
 }

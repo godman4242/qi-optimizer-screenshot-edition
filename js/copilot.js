@@ -97,9 +97,10 @@ function renderCraftCopilot() {
 }
 
 // Re-render copilot whenever results re-render or qty changes
-const _origRenderResults = typeof renderResults === 'function' ? renderResults : null;
+// (capture the original INSIDE DOMContentLoaded — copilot.js loads before
+// ui.js, so at top-level parse time renderResults doesn't exist yet)
 document.addEventListener('DOMContentLoaded', () => {
-  if (_origRenderResults) {
+  if (typeof renderResults === 'function') {
     const orig = renderResults;
     window.renderResults = async function (...args) {
       const r = await orig.apply(this, args);

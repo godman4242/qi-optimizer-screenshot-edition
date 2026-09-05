@@ -1,8 +1,10 @@
 // ============================================================
-// VISION.JS — Screenshot → Inventory Autofill (OCR)
+// VISION.JS — Screenshot(s) → Inventory Autofill (OCR)
 // Uses Tesseract.js (vendored locally, offline-capable).
-// Flow: pick image → OCR → fuzzy-match herb names + quantities
-//       → confirm overlay → apply to inventoryState.
+// Flow: pick/paste one or more images → OCR each in sequence
+//       → fuzzy-match herb names + quantities → SUM quantities
+//       across images → one confirm overlay → apply to
+//       inventoryState.
 // ============================================================
 
 // ------------------------------------------------------------
@@ -10,6 +12,10 @@
 // ------------------------------------------------------------
 let visionWorker = null;
 let visionWorkerReady = false;
+
+// Batch guard: no overlapping runs — new picks/pastes during an
+// active batch are ignored (single-flight, not queued).
+let visionBatchActive = false;
 
 const VENDOR_BASE = 'vendor/';
 const VISION_STATUS_ID = 'vision-status';
@@ -105,8 +111,6 @@ async function ensureVisionWorker(onProgress) {
   const T = window.Tesseract;
   if (!T) throw new Error('Tesseract.js failed to load');
   const setStatus = (msg) => {
-    const el = document.getElementById(VISION_STATUS_ID);
-    if (el) el.textContent = msg;
     if (onProgress) onProgress(msg);
   };
   setStatus('Loading OCR engine…');
@@ -120,7 +124,7 @@ async function ensureVisionWorker(onProgress) {
       else if (m.status === 'initializing tesseract') setStatus('Initializing OCR…');
       else if (m.status === 'loading language traineddata') setStatus('Loading herb language data…');
       else if (m.status === 'initializing api') setStatus('OCR ready…');
-      else if (m.status === 'recognizing text') setStatus(`Reading screenshot… ${Math.round((m.progress || 0) * 100)}%`);
+      else if (m.status === 'recognizing text') setStatus(`Reading screenshot… ${Math.round((m.progress || 0) * 100)}%`);  // batch runner rewrites this per-image
     }
   });
   visionWorkerReady = true;
@@ -238,37 +242,81 @@ function showVisionConfirm(found, imgCanvas) {
 }
 
 // ------------------------------------------------------------
-// 6. MAIN ENTRY
+// 6. MAIN ENTRY — BATCH QUEUE
 // ------------------------------------------------------------
 
-async function runVisionImport(file) {
+// OCR every image in sequence, SUM quantities per plant across
+// images (screenshots may show different pages of the same
+// inventory), then show ONE combined confirm overlay.
+// Per-image failure logs and continues; only a worker/engine
+// failure aborts the whole batch.
+async function runVisionImport(files) {
+  if (visionBatchActive) return; // single-flight: ignore while a batch runs
+  visionBatchActive = true;
+
   const statusEl = document.getElementById(VISION_STATUS_ID);
   const btn = document.getElementById('btn-vision');
   try {
     if (btn) { btn.disabled = true; btn.textContent = '📸 Reading…'; }
     if (statusEl) statusEl.textContent = 'Warming up OCR…';
 
-    const canvas = await preprocessImage(file);
-    const worker = await ensureVisionWorker();
-    const { data: { text } } = await worker.recognize(canvas);
-    const found = parseOcrLines(text);
+    const list = Array.from(files || []);
+    if (!list.length) return;
 
-    if (statusEl) statusEl.textContent = Object.keys(found).length
-      ? `Detected ${Object.keys(found).length} herb type(s) — review below.`
-      : 'No herbs detected — check the screenshot shows plant names with quantities.';
+    const worker = await ensureVisionWorker((msg) => {
+      if (statusEl) statusEl.textContent = msg;
+    });
 
-    const applied = await showVisionConfirm(found, canvas);
+    const totals = {}; // plantName -> summed qty across images
+    let failed = 0;
+
+    for (let i = 0; i < list.length; i++) {
+      const file = list[i];
+      const n = i + 1;
+      try {
+        const canvas = await preprocessImage(file);
+        const { data: { text } } = await worker.recognize(canvas, {
+          // Per-image progress while this recognize() runs
+          logger: m => {
+            if (m.status === 'recognizing text' && statusEl) {
+              statusEl.textContent = `Reading screenshot ${n} of ${list.length}… ${Math.round((m.progress || 0) * 100)}%`;
+            }
+          }
+        });
+        const found = parseOcrLines(text);
+        for (const [name, qty] of Object.entries(found)) {
+          totals[name] = (totals[name] || 0) + qty;
+        }
+      } catch (err) {
+        failed++;
+        console.error(`Vision import failed for image ${n} of ${list.length}:`, err);
+        if (statusEl) statusEl.textContent = `⚠️ Screenshot ${n} of ${list.length} failed — continuing…`;
+      }
+    }
+
+    if (statusEl) {
+      statusEl.textContent = failed
+        ? `Done with ${failed} screenshot(s) failed — review below.`
+        : (Object.keys(totals).length
+          ? `Detected ${Object.keys(totals).length} herb type(s) across ${list.length} screenshot(s) — review below.`
+          : 'No herbs detected — check the screenshots show plant names with quantities.');
+    }
+
+    const applied = await showVisionConfirm(totals, null);
     if (applied && Object.keys(applied).length) {
       // Add on top of existing inventory (user may already have counts entered)
       for (const [name, qty] of Object.entries(applied)) {
         setQty(name, qty);
       }
       if (window.AudioController) window.AudioController.playDone();
+      if (statusEl) statusEl.textContent = `Applied ${Object.keys(applied).length} herb type(s) to inventory.`;
     }
   } catch (err) {
+    // Worker/engine-level failure (e.g. Tesseract failed to load) — abort all
     console.error('Vision import failed:', err);
     if (statusEl) statusEl.textContent = '❌ OCR failed: ' + err.message;
   } finally {
+    visionBatchActive = false;
     if (btn) { btn.disabled = false; btn.textContent = '📸 Autofill from Screenshot'; }
   }
 }
@@ -280,20 +328,24 @@ function initVision() {
   if (!input || !btn) return;
   btn.addEventListener('click', () => input.click());
   input.addEventListener('change', () => {
-    const f = input.files && input.files[0];
-    if (f) runVisionImport(f);
-    input.value = ''; // allow re-picking the same file
+    if (input.files && input.files.length) runVisionImport(input.files);
+    input.value = ''; // allow re-picking the same file(s)
   });
-  // Paste-from-clipboard support (screenshot → Cmd+V straight into the page)
+  // Paste-from-clipboard support (screenshot → Cmd+V straight into the page);
+  // loops ALL image items so multi-image pastes go through the same queue
   document.addEventListener('paste', (e) => {
     const items = e.clipboardData && e.clipboardData.items;
     if (!items) return;
+    const pasted = [];
     for (const item of items) {
       if (item.type && item.type.startsWith('image/')) {
         const f = item.getAsFile();
-        if (f) { e.preventDefault(); runVisionImport(f); }
-        break;
+        if (f) pasted.push(f);
       }
+    }
+    if (pasted.length) {
+      e.preventDefault();
+      runVisionImport(pasted);
     }
   });
 }

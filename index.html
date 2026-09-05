@@ -44,8 +44,8 @@
       autocorrect="off"
       spellcheck="false"
     >
-    <button class="btn btn-vision-btn" id="btn-vision" title="Autofill from a screenshot of your in-game inventory (or paste with Cmd+V)">📸 Autofill from Screenshot</button>
-    <input type="file" id="vision-file-input" accept="image/*" style="display:none">
+    <button class="btn btn-vision-btn" id="btn-vision" title="Autofill from one or more screenshots of your in-game inventory (or paste with Cmd+V)">📸 Autofill from Screenshot</button>
+    <input type="file" id="vision-file-input" accept="image/*" multiple style="display:none">
     <button class="btn" id="btn-clear" onclick="dataLayer.push({'event': 'click_clear_all'});">Clear All</button>
   </div>
   <div class="vision-status-row"><span id="vision-status"></span></div>
@@ -100,7 +100,7 @@
 <script src="js/data.js?v=2.3"></script>
 <script src="js/alchemy.js?v=2.3"></script>
 <script src="js/optimizer.js?v=2.3"></script>
-<script src="js/vision.js?v=2.4"></script>
+<script src="js/vision.js?v=2.5"></script>
 <script src="js/copilot.js?v=2.3"></script>
 <script src="js/ui.js?v=2.3"></script>
 <script src="vendor/tesseract.min.js?v=1"></script>
