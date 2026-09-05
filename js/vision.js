@@ -114,6 +114,7 @@ async function ensureVisionWorker(onProgress) {
     workerPath: VENDOR_BASE + 'worker.min.js',
     corePath: VENDOR_BASE,
     langPath: VENDOR_BASE,
+    gzip: false, // we vendor plain eng.traineddata (not .gz) — default gzip:true 404s
     logger: m => {
       if (m.status === 'loading tesseract core') setStatus('Loading OCR core…');
       else if (m.status === 'initializing tesseract') setStatus('Initializing OCR…');
