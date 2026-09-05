@@ -29,7 +29,11 @@ A sticky panel above the results that walks you through the optimal set one craf
 ### Everything from the original still works
 Smart derivation engine (Heavenly/Imperfect paths), inventory constraints, unique-effects validation, the GRASP solver, and the crafting tracker — see the [original README](https://github.com/Hitghul/alchemy-tool#features) for details.
 
-## 🚀 Run it
+## 🌐 Live version
+
+**Deployed on GitHub Pages:** <https://godman4242.github.io/qi-optimizer-screenshot-edition/>
+
+## 🚀 Run it locally
 
 No build step, no backend, no API keys:
 
