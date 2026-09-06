@@ -1173,3 +1173,34 @@ body.vision-dragging::after {
   color: var(--text-muted);
   background: rgba(201, 168, 76, 0.05);
 }
+
+/* A crash is not a bad screenshot — say which one it was. */
+.vision-error { text-align: left; line-height: 1.6; }
+.vision-error-detail {
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.6rem;
+  border-radius: 6px;
+  background: rgba(224, 85, 85, 0.1);
+  border: 1px solid var(--red);
+  color: var(--red);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  word-break: break-word;
+}
+.vision-error-fix { font-size: 0.78rem; color: var(--text-muted); }
+.vision-error-fix kbd {
+  display: inline-block;
+  padding: 0.05rem 0.3rem;
+  border: 1px solid var(--border-glow);
+  border-radius: 4px;
+  background: var(--bg-card2);
+  color: var(--text);
+  font-size: 0.7rem;
+}
+.vision-version {
+  text-align: center;
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  opacity: 0.75;
+  margin-top: 0.3rem;
+}

@@ -30,6 +30,267 @@
 // on one worker. v4 runs 2 calls per cell across a small worker pool.
 // ============================================================
 
+// ============================================================
+// PART 1 — MATCHING (pure: no DOM, no canvas, no OCR)
+//
+// This lived in its own js/vision-match.js until a stale browser cache proved
+// the split was a liability: `python3 -m http.server` sends no cache headers,
+// so a browser that had loaded an older index.html kept serving that skeleton,
+// never requested the new file, and every screenshot then died on
+// `ReferenceError: VisionMatch is not defined` — which the UI reported as the
+// thoroughly misleading "No herbs detected". One file cannot go half-stale.
+//
+// The code is still pure and still unit-tested without a browser
+// (tests/vision-match.test.mjs loads this file in a node:vm); the separation
+// is now a section boundary rather than a network dependency.
+//
+// The problem it solves: OCR of the in-game herb names is noisy — real reads
+// include "Cllewel Mist" (Cloud Mist Herb) and "Silverleai BIER" (Silverleaf
+// Herb). Three things make that recoverable:
+//   1. CLOSED VOCABULARY — exactly 24 plants, known ahead of time.
+//   2. RARITY PRIOR — the game tints each tile by rarity and data.js records
+//      every plant's rarity, so 24 candidates drop to 3-6 before a single
+//      character is compared.
+//   3. ONE-TO-ONE — a plant owns one slot, so no two cells in one screenshot
+//      may resolve to the same plant.
+// ============================================================
+
+(function (root) {
+  'use strict';
+
+  // ----------------------------------------------------------
+  // 1. NORMALISATION
+  // ----------------------------------------------------------
+
+  // Glyph confusions actually observed in reads off these screenshots.
+  // Folded in BOTH directions (read and plant name are both normalised
+  // through this table), so it can only ever pull a pair closer.
+  const CONFUSION = {
+    '0': 'o', '1': 'l', '5': 's', '8': 'b', '6': 'b', '2': 'z',
+    '|': 'l', '!': 'l', '{': 'c', '[': 'l', ']': 'l', '@': 'a', '$': 's',
+  };
+  // How much a plant whose rarity disagrees with the tile colour is discounted.
+  // Measured: the tile-colour classifier is right on every cell of the fixture
+  // set, so this can be aggressive without risking an unreachable plant.
+  const OFF_RARITY_PENALTY = 0.55;
+
+  // Digraph folds, applied to BOTH the read and the plant name so the two land
+  // in the same canonical shape. A fold is only safe when it does not destroy a
+  // distinguishing part of a real name: 'cl'→'d' was removed because the only
+  // plant containing "cl" is Cloud Mist Herb, and folding it turned "cloud"
+  // into "doud" — mangling exactly the name it was supposed to help.
+  const DIGRAPHS = [['rn', 'm'], ['vv', 'w'], ['ii', 'i'], ['ll', 'l'], ['ss', 's']];
+
+  function normalizeName(s) {
+    let t = String(s || '').toLowerCase();
+    let out = '';
+    for (const ch of t) out += CONFUSION[ch] !== undefined ? CONFUSION[ch] : ch;
+    out = out.replace(/[^a-z ]+/g, ' ');
+    for (const [a, b] of DIGRAPHS) out = out.split(a).join(b);
+    return out.replace(/\s+/g, ' ').trim();
+  }
+
+  // ----------------------------------------------------------
+  // 2. SIMILARITY
+  // ----------------------------------------------------------
+
+  function bigrams(s) {
+    const t = s.replace(/ /g, '');
+    const out = new Set();
+    for (let i = 0; i < t.length - 1; i++) out.add(t.slice(i, i + 2));
+    return out;
+  }
+
+  function dice(a, b) {
+    const A = bigrams(a), B = bigrams(b);
+    if (!A.size || !B.size) return 0;
+    let inter = 0;
+    for (const g of A) if (B.has(g)) inter++;
+    return (2 * inter) / (A.size + B.size);
+  }
+
+  // Levenshtein on the space-stripped strings, normalised to 0..1.
+  // Catches the single-character slips that bigram-Dice under-weights on
+  // short names ("Basic Herb" vs "Basil Herb").
+  function editSim(a, b) {
+    const s = a.replace(/ /g, ''), t = b.replace(/ /g, '');
+    if (!s.length || !t.length) return 0;
+    if (s === t) return 1;
+    let prev = new Array(t.length + 1);
+    let cur = new Array(t.length + 1);
+    for (let j = 0; j <= t.length; j++) prev[j] = j;
+    for (let i = 1; i <= s.length; i++) {
+      cur[0] = i;
+      for (let j = 1; j <= t.length; j++) {
+        const cost = s[i - 1] === t[j - 1] ? 0 : 1;
+        cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+      }
+      const tmp = prev; prev = cur; cur = tmp;
+    }
+    return 1 - prev[t.length] / Math.max(s.length, t.length);
+  }
+
+  // Word-level agreement, tolerant of one bad character per word. The game's
+  // names are built from a small word stock ("Grass", "Herb", "Spirit"), so a
+  // word that survives OCR intact is strong evidence.
+  function tokenSim(a, b) {
+    const ta = a.split(' ').filter(Boolean), tb = b.split(' ').filter(Boolean);
+    if (!ta.length || !tb.length) return 0;
+    let matched = 0;
+    const used = new Array(tb.length).fill(false);
+    for (const wa of ta) {
+      let bestJ = -1, bestS = 0;
+      for (let j = 0; j < tb.length; j++) {
+        if (used[j]) continue;
+        const s = editSim(wa, tb[j]);
+        if (s > bestS) { bestS = s; bestJ = j; }
+      }
+      if (bestJ >= 0 && bestS >= 0.6) { used[bestJ] = true; matched += bestS; }
+    }
+    return (2 * matched) / (ta.length + tb.length);
+  }
+
+  // Ensemble score in 0..1 for one OCR read against one plant name.
+  // The three measures fail in different places, so the max of the pair
+  // averages is steadier than any one of them alone.
+  function similarity(rawRead, plantName) {
+    const r = normalizeName(rawRead);
+    const n = normalizeName(plantName);
+    if (!r || !n) return 0;
+    if (r === n) return 1;
+    const d = dice(r, n);
+    const e = editSim(r, n);
+    const t = tokenSim(r, n);
+    let s = Math.max((d + e) / 2, (t + Math.max(d, e)) / 2, t);
+    // A correctly-read leading word is worth a nudge: it is the part of the
+    // name a clipped cell loses first, so having it is real information.
+    const fw = n.split(' ')[0];
+    if (fw && fw.length > 2 && r.split(' ').some((w) => editSim(w, fw) >= 0.8)) {
+      s = Math.min(1, s + 0.06);
+    }
+    return s;
+  }
+
+  // ----------------------------------------------------------
+  // 3. RARITY FROM TILE COLOUR
+  // ----------------------------------------------------------
+
+  // The inventory tile behind each icon is tinted by rarity. Measured from
+  // the fixture screenshots (median of the tile's left/right margins, which
+  // the centred icon never covers):
+  //   C common    desaturated grey
+  //   U uncommon  green   (g highest)
+  //   R rare      blue    (b highest, r lowest)
+  //   E epic      purple  (g LOWEST — both r and b beat it)
+  //   L legendary gold    (b lowest, r highest)
+  // Returns null when the sample is too washed out to call, in which case the
+  // caller must fall back to the full 24-plant vocabulary.
+  function rarityFromTile(r, g, b) {
+    if (![r, g, b].every((v) => typeof v === 'number' && isFinite(v))) return null;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+    const chroma = mx - mn;
+    if (mx < 30) return null;            // too dark to judge
+    if (chroma < 14) return 'C';         // grey tile
+    if (chroma < 20) return null;        // ambiguous band — do not guess
+    if (g > r && g > b) return 'U';      // green
+    if (g > b && r > b) return 'L';      // gold: blue is the minimum
+    if (b > g && r > g) return 'E';      // purple: green is the minimum
+    if (b > g && g > r) return 'R';      // blue: red is the minimum
+    return null;
+  }
+
+  // ----------------------------------------------------------
+  // 4. ASSIGNMENT
+  // ----------------------------------------------------------
+
+  // Score one read against every plant, then apply the rarity prior as a
+  // MULTIPLIER rather than a filter.
+  //
+  // A hard gate plus a "widen if the gate is not paying off" escape hatch was
+  // tried first and was worse than no gate at all: the escape hatch fired on
+  // most cells and let a Common plant win a Rare slot. A multiplier keeps every
+  // plant reachable — a mis-sampled tile can never make one unreachable — while
+  // making an out-of-rarity match need to be far better to win.
+  function rankCandidates(read, plantRarities, rarity) {
+    const penalty = OFF_RARITY_PENALTY;
+    return Object.keys(plantRarities)
+      .map((name) => {
+        const raw = similarity(read, name);
+        const ok = !rarity || plantRarities[name] === rarity;
+        return { name, score: ok ? raw : raw * penalty, raw, rarityOk: ok };
+      })
+      .sort((a, b) => b.score - a.score);
+  }
+
+  // Assign plants to reads one-to-one, maximising total score.
+  // Greedy over globally-sorted pairs, then 2-opt swaps until no swap
+  // improves the total. n is at most a screenful of cells (<= 12), so this
+  // settles in microseconds and lands on the optimum in practice.
+  function assign(reads, plantRarities, opts) {
+    const options = opts || {};
+    const minScore = options.minScore !== undefined ? options.minScore : 0.20;
+    const ranked = reads.map((rd) =>
+      rankCandidates(rd.text || '', plantRarities, rd.rarity || null));
+
+    const pairs = [];
+    ranked.forEach((list, i) => {
+      for (const c of list) if (c.score >= minScore) pairs.push({ i, name: c.name, score: c.score });
+    });
+    pairs.sort((a, b) => b.score - a.score);
+
+    const chosen = new Array(reads.length).fill(null);
+    const taken = new Set();
+    for (const p of pairs) {
+      if (chosen[p.i] || taken.has(p.name)) continue;
+      chosen[p.i] = { name: p.name, score: p.score };
+      taken.add(p.name);
+    }
+
+    const scoreOf = (i, name) => {
+      if (!name) return 0;
+      const hit = ranked[i].find((c) => c.name === name);
+      return hit ? hit.score : 0;
+    };
+    // 2-opt: greedy can lock a strong-but-wrong pairing that a swap undoes.
+    for (let pass = 0; pass < reads.length; pass++) {
+      let improved = false;
+      for (let i = 0; i < reads.length; i++) {
+        for (let j = i + 1; j < reads.length; j++) {
+          const ni = chosen[i] && chosen[i].name, nj = chosen[j] && chosen[j].name;
+          if (!ni && !nj) continue;
+          const now = scoreOf(i, ni) + scoreOf(j, nj);
+          const swapped = scoreOf(i, nj) + scoreOf(j, ni);
+          if (swapped > now + 1e-9) {
+            chosen[i] = nj ? { name: nj, score: scoreOf(i, nj) } : null;
+            chosen[j] = ni ? { name: ni, score: scoreOf(j, ni) } : null;
+            improved = true;
+          }
+        }
+      }
+      if (!improved) break;
+    }
+
+    return chosen.map((c, i) => ({
+      name: c ? c.name : null,
+      score: c ? c.score : 0,
+      runnerUp: (ranked[i].find((x) => !c || x.name !== c.name) || { name: null, score: 0 }),
+      rarityUsed: reads[i].rarity || null,
+    }));
+  }
+
+  const api = {
+    normalizeName, similarity, editSim, dice, tokenSim,
+    rarityFromTile, rankCandidates, assign,
+  };
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  root.VisionMatch = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+// ============================================================
+// PART 2 — IMAGE PIPELINE AND UI (needs a browser)
+// ============================================================
+
 // ------------------------------------------------------------
 // 1. CONFIG — every tunable in one place, all measured
 // ------------------------------------------------------------
@@ -92,6 +353,11 @@ let visionPool = null;
 let visionPoolPromise = null;
 let visionBatchActive = false;
 let lastVisionApply = null;   // inventory snapshot for Undo
+
+// Bumped whenever the pipeline changes. Rendered into the footer so the
+// question "am I actually running the new version?" can be answered by
+// looking at the page instead of guessing at a browser cache.
+const VISION_VERSION = '4.1';
 
 const VENDOR_BASE = 'vendor/';
 const VISION_STATUS_ID = 'vision-status';
@@ -771,7 +1037,8 @@ async function analyzeFiles(list, onStatus, opts) {
     thumb: v.thumb,
   })).sort((a, b) => b.nameScore - a.nameScore);
 
-  return { rows, perImage, failed };
+  const errorText = perImage.map((d) => d.error).filter(Boolean)[0] || null;
+  return { rows, perImage, failed, error: errorText };
 }
 
 // ------------------------------------------------------------
@@ -784,7 +1051,7 @@ function escapeHtml(s) {
   ));
 }
 
-function showVisionConfirm(inputRows) {
+function showVisionConfirm(inputRows, diagnostic) {
   return new Promise((resolve) => {
     // Anything needing a human decision goes to the TOP, so the dialog opens on
     // the work rather than opening scrolled to it. Within each group, plain
@@ -825,11 +1092,27 @@ function showVisionConfirm(inputRows) {
         </div>`;
     }).join('');
 
-    const empty = `<div class="no-results">
-        No herbs detected. The autofill looks for the inventory grid — tiles with
-        grey corner brackets, an <b>xNN</b> badge and the herb name underneath.
-        Crop to that grid and try again.
-      </div>`;
+    // A crash and a genuinely unreadable screenshot are completely different
+    // problems and must never render the same sentence. The old build showed
+    // "No herbs detected" for both, which sent players hunting for a better
+    // screenshot when the real answer was a stale page in the browser cache.
+    const empty = diagnostic
+      ? `<div class="no-results vision-error">
+          <b>The autofill crashed — this is not your screenshot's fault.</b>
+          <div class="vision-error-detail">${escapeHtml(diagnostic)}</div>
+          <div class="vision-error-fix">
+            Most often this is an out-of-date page held in the browser cache.
+            <b>Hard-refresh</b> and try again:
+            <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd> on a Mac,
+            <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd> on Windows.
+            If it keeps happening, open the browser console and send the red text.
+          </div>
+        </div>`
+      : `<div class="no-results">
+          No herbs detected. The autofill looks for the inventory grid — tiles with
+          grey corner brackets, an <b>xNN</b> badge and the herb name underneath.
+          Crop to that grid and try again.
+        </div>`;
 
     overlay.innerHTML = `
       <div class="vision-modal" role="dialog" aria-modal="true" aria-label="Review detected herbs">
@@ -952,17 +1235,16 @@ async function runVisionImport(files) {
     if (!list.length) { setStatus('That was not an image — paste or pick a screenshot.'); return; }
 
     const t0 = performance.now();
-    const { rows, failed } = await analyzeFiles(list, setStatus, { thumbs: true });
+    const { rows, failed, error } = await analyzeFiles(list, setStatus, { thumbs: true });
     const secs = ((performance.now() - t0) / 1000).toFixed(1);
 
     const sure = rows.filter((r) => r.nameScore >= VISION_CFG.autoAccept).length;
-    setStatus(failed
-      ? `Read ${list.length - failed} of ${list.length} screenshots (${failed} failed) — review below.`
-      : (rows.length
-        ? `Found ${rows.length} herb type(s) in ${secs}s — ${sure} confident, ${rows.length - sure} to confirm.`
-        : 'No herbs detected — check the screenshots show the inventory grid.'));
+    if (failed && !rows.length) setStatus(`❌ The autofill crashed: ${error || 'unknown error'}`);
+    else if (failed) setStatus(`Read ${list.length - failed} of ${list.length} screenshots (${failed} failed) — review below.`);
+    else if (rows.length) setStatus(`Found ${rows.length} herb type(s) in ${secs}s — ${sure} confident, ${rows.length - sure} to confirm.`);
+    else setStatus('No herbs detected — check the screenshots show the inventory grid.');
 
-    const result = await showVisionConfirm(rows);
+    const result = await showVisionConfirm(rows, (failed && !rows.length) ? (error || 'unknown error') : null);
     if (result && Object.keys(result.quantities).length) {
       const before = {};
       for (const name of Object.keys(result.quantities)) before[name] = getQty(name);
@@ -1005,10 +1287,41 @@ function warmUpVision() {
     });
 }
 
+// Everything vision.js needs from the rest of the page. If the browser is
+// serving a half-stale set of files, saying so at startup beats letting the
+// first screenshot die with a misleading message.
+function checkVisionDependencies() {
+  const missing = [];
+  if (typeof window.Tesseract === 'undefined') missing.push('vendor/tesseract.min.js');
+  if (typeof PLANTS === 'undefined') missing.push('js/data.js');
+  if (typeof setQty !== 'function') missing.push('js/ui.js');
+  return missing;
+}
+
+function stampVisionVersion() {
+  const footer = document.querySelector('.footer-credits');
+  if (!footer || document.getElementById('vision-version')) return;
+  const el = document.createElement('div');
+  el.id = 'vision-version';
+  el.className = 'vision-version';
+  el.textContent = `Screenshot autofill v${VISION_VERSION}`;
+  el.title = 'If this number is not the one you expect, the browser is serving a cached page — hard-refresh.';
+  footer.parentNode.insertBefore(el, footer.nextSibling);
+}
+
 function initVision() {
   const input = document.getElementById('vision-file-input');
   const btn = document.getElementById('btn-vision');
   if (!input || !btn) return;
+
+  stampVisionVersion();
+  const missing = checkVisionDependencies();
+  if (missing.length) {
+    const statusEl = document.getElementById(VISION_STATUS_ID);
+    const msg = `⚠️ The page is missing ${missing.join(', ')} — hard-refresh (Cmd/Ctrl+Shift+R).`;
+    if (statusEl) statusEl.textContent = msg;
+    console.error('Vision:', msg);
+  }
 
   btn.addEventListener('click', () => input.click());
   input.addEventListener('change', () => {

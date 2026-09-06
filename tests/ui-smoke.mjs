@@ -66,6 +66,13 @@ console.log('══════════════════════�
 console.log('  UI SMOKE TEST — real browser, real screenshots');
 console.log('════════════════════════════════════════════════\n');
 
+// Without this, ANY unexpected rejection leaves the http server listening and
+// node never exits — a hung run looks identical to a slow one.
+process.on('unhandledRejection', (e) => {
+  console.error('\n  UNEXPECTED ERROR:', e && e.message ? e.message : e);
+  process.exit(1);
+});
+
 const browser = await playwright.chromium.launch({ headless: !HEADED });
 const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
 const errors = [];
@@ -85,6 +92,31 @@ check('inventory grid rendered all 24 plants',
   `found ${await page.locator('.plant-card').count()}`);
 
 check('backup button was added to the toolbar', await page.locator('#btn-backup').count() === 1);
+
+// Read through count() first: locator.textContent() on a missing element
+// auto-waits 30s and then throws, which in a top-level-await module leaves the
+// http server listening and hangs the whole run instead of failing it.
+const versionText = (await page.locator('#vision-version').count())
+  ? await page.locator('#vision-version').textContent()
+  : '(missing)';
+check('the page stamps its pipeline version so a cached build is visible',
+  /Screenshot autofill v\d+\.\d+/.test(versionText), versionText);
+
+// A crash and an unreadable screenshot must not render the same sentence.
+// Before v4.1 both produced "No herbs detected", which sent players hunting
+// for a better screenshot when the page itself was the problem.
+// Fire and forget: showVisionConfirm returns a promise that only settles when
+// the dialog is closed, so returning it to page.evaluate waits forever.
+await page.evaluate(() => { window.Vision.showVisionConfirm([], 'simulated engine failure'); });
+await page.waitForSelector('.vision-overlay');
+const crashText = await page.evaluate(() =>
+  document.querySelector('.vision-overlay').textContent.replace(/\s+/g, ' '));
+check('a crashed read says it crashed, and does not blame the screenshot',
+  /crashed/i.test(crashText) && /simulated engine failure/.test(crashText)
+    && !/No herbs detected/.test(crashText),
+  crashText.slice(0, 160));
+await page.keyboard.press('Escape');
+await page.waitForSelector('.vision-overlay', { state: 'detached' });
 
 // ---- screenshot import, end to end through the real UI ----
 await page.waitForFunction(() => window.Vision && window.Vision.analyzeFiles, null, { timeout: 30000 });

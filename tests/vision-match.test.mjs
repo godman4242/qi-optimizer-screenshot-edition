@@ -20,17 +20,19 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const JS = path.join(__dirname, '..', 'js');
 
-// vision-match.js is a plain <script> that attaches to the global object, and
-// vision.js is the same but also touches window/document/navigator when it
-// runs. Both are loaded into one sandbox with just enough of a browser for
-// their top level.
+// vision.js is a plain <script> that attaches to the global object and touches
+// window/document/navigator at its top level, so it is loaded into a sandbox
+// with just enough of a browser. The pure matching half (window.VisionMatch)
+// lives in the same file since v4.1 — it used to be js/vision-match.js, but a
+// stale browser cache proved that a second file is a second thing that can go
+// missing, and the unit tests never needed the split to begin with.
 const sandbox = { console, performance, setTimeout, clearTimeout, requestIdleCallback: undefined };
 sandbox.window = sandbox;
 sandbox.globalThis = sandbox;
 sandbox.navigator = { hardwareConcurrency: 4 };
 sandbox.document = { getElementById: () => null, createElement: () => ({ getContext: () => null }), addEventListener: () => {} };
 vm.createContext(sandbox);
-for (const f of ['data.js', 'vision-match.js', 'vision.js']) {
+for (const f of ['data.js', 'vision.js']) {
   vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), sandbox, { filename: f });
 }
 // Top-level `const` in a classic script lands in the context's global LEXICAL

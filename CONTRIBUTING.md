@@ -23,8 +23,9 @@ js/data.js          — plant/recipe game data (static)
 js/alchemy.js       — derivation engine
 js/optimizer.js     — GRASP solver (original)
 js/ui.js            — UI orchestration (original)
-js/vision.js        — FORK: screenshot OCR — image processing, OCR pool, review overlay
-js/vision-match.js  — FORK: pure matching logic (no DOM) — name similarity, rarity, assignment
+js/vision.js        — FORK: screenshot OCR. Part 1 is pure matching logic (no
+                      DOM: name similarity, rarity, assignment); Part 2 is the
+                      image pipeline, OCR worker pool and review overlay.
 js/copilot.js       — FORK: craft copilot panel
 js/backup.js        — FORK: inventory backup / restore
 vendor/             — vendored Tesseract.js 7 runtime + eng traineddata (Apache-2.0)
@@ -72,4 +73,5 @@ If the autofill misreads a screenshot of yours, the most useful thing you can se
 - **Don't move recipe data.** `js/data.js` mirrors the game's crafting rules; changes there must match in-game behaviour exactly.
 - **Keep the app dependency-free at runtime.** It must run offline from a plain static server. No npm, no CDNs at runtime. Dev-only tooling (Playwright) is fine.
 - **Keep the vendored OCR self-contained.** If you upgrade Tesseract.js, vendor every file the worker can request (see `vendor/README.md`) and keep `langPath`/`corePath` pointing at `vendor/`.
-- **Pure logic goes in `vision-match.js`.** Anything that doesn't need a canvas belongs there, where it can be unit-tested without a browser.
+- **Pure logic goes in Part 1 of `vision.js`.** Anything that doesn't need a canvas belongs above the `PART 2` banner, where `tests/vision-match.test.mjs` exercises it in a `node:vm` with no browser. It used to be a separate `js/vision-match.js`; a stale browser cache proved that a second file is a second thing that can go missing, and the app died on `ReferenceError: VisionMatch is not defined` while telling the player "No herbs detected".
+- **A crash must never be reported as a bad screenshot.** The empty state distinguishes the two, and `tests/ui-smoke.mjs` fails if that regresses.

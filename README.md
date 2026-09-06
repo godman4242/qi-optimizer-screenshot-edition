@@ -74,7 +74,9 @@ python3 -m http.server 8080
 
 Any static file server works.
 
-> **Note:** open it through a server rather than double-clicking `index.html`. The OCR engine loads its WebAssembly core with `fetch`, which browsers block on `file://`.
+> **Two gotchas when running locally:**
+> - Open it through a server, not by double-clicking `index.html` — the OCR engine loads its WebAssembly core with `fetch`, which browsers block on `file://`.
+> - `python3 -m http.server` sends **no cache headers**, so after an update your browser may still serve the old page. **Hard-refresh** (`Cmd/Ctrl+Shift+R`). The version shown at the bottom of the page tells you which build you actually have.
 
 ## ✅ Tests
 
