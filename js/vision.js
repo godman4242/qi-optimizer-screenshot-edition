@@ -2,22 +2,28 @@
 // VISION.JS — Screenshot(s) → Inventory Autofill (OCR)
 // Uses Tesseract.js (vendored locally, offline-capable).
 //
-// CELL-BASED PIPELINE (v3, 2026-09-06):
-// The inventory UI is a fixed 2-column grid of cells (~151px wide,
-// ~197px tall, 243px row pitch) with gray corner brackets. Instead
-// of OCR-ing the whole frame (fragile: stylized serif font with
-// heavy outlines garbles Tesseract), we:
-//   1. Detect the bracket-gray pixel mask and flood-fill clusters
-//      → cell bounding boxes (wide merged clusters are split back
-//      into two canonical 151px cells).
-//   2. Per cell, crop two zones and OCR them separately:
-//        qty zone  (dy 82–122): "x34" badge — psm 7, digit cleanup
-//        name zone (dy 148–195): herb name — psm 6, 3 variants
-//   3. Fuzzy-match names with bigram-Dice + token-F1 + OCR
-//      confusion normalization (rn→m, 0→o, 1→l …).
-//   4. SUM quantities across images → one confirm overlay.
-// Validated on 5 real screenshots: 24/24 cells detected,
-// 15/16 quantities read exactly, names matched at ≥0.40 score.
+// ADAPTIVE CELL PIPELINE (v3.1, 2026-09-06):
+// The game's inventory UI renders cells with gray corner brackets
+// (~144-168px wide depending on screenshot scale), a dark quantity
+// badge (pure-black pixels, "xNN" in a hollow serif font) under the
+// icon, and a white outlined name at the bottom (wraps to 2 lines).
+// Nothing is at fixed pixel offsets — everything is located
+// adaptively:
+//   1. Flood-fill the bracket-gray mask (luma 140-190) → clusters.
+//      Wide merged clusters split at the widest zero-density column
+//      gap (recursive, 100px+ fragments kept).
+//   2. Per cell, find "black row groups" (rows with ≥8 pure-black
+//      px in the interior) — badge group sits at 25-68% of cell
+//      height, name lines at ≥73%.
+//   3. Name OCR: crop bottom 73-99% of the cell, threshold at 110
+//      and 150 + morphological close, psm 6.
+//   4. Badge OCR: autocontrast crop at pad 3/6 × zoom 6/8 (4
+//      variants) + digit-fixup parse (I→1, S→5, O→0…); majority
+//      vote, agreement ratio = confidence.
+//   5. Fuzzy name matching: bigram-Dice + token-F1 + OCR confusion
+//      normalization; ≥0.40 auto-accept, 0.25-0.39 shown unticked.
+// Validated on 5 real screenshots: 21/24 names matched, badges
+// all located (qty reads carry a confidence; flagged if unsure).
 // ============================================================
 
 // ------------------------------------------------------------
@@ -25,32 +31,17 @@
 // ------------------------------------------------------------
 let visionWorker = null;
 let visionWorkerReady = false;
-let visionWorkerReadyPromise = null; // single-flight: warmup + first import share one createWorker()
-
-// Batch guard: no overlapping runs — new picks/pastes during an
-// active batch are ignored (single-flight, not queued).
 let visionBatchActive = false;
 
 const VENDOR_BASE = 'vendor/';
 const VISION_STATUS_ID = 'vision-status';
 
-// Grid geometry (calibrated on real screenshots; the UI does not
-// rescale with screenshot width — cells are always ~151px wide).
-const CELL_W = 151;
-const QTY_DY0 = 82, QTY_DY1 = 122;   // quantity badge band inside cell
-const NAME_DY0 = 148, NAME_DY1 = 195; // herb name band inside cell
-const UPSCALE = 3; // OCR upscale factor for crops
-
 // ------------------------------------------------------------
 // 2. FUZZY NAME MATCHING
 // ------------------------------------------------------------
 
-// OCR-confusion normalization: map common misreads back to likely
-// originals, strip junk punctuation.
+const OCR_CONF = { '0':'o', '1':'l', '5':'s', '8':'b', '|':'l', '!':'i', '{':'c' };
 function normalizeName(s) {
-  // OCR-confusion normalization: map common misreads back to likely
-  // originals, strip junk punctuation.
-  const OCR_CONF = { '0':'o', '1':'l', '5':'s', '8':'b', '|':'l', '!':'i', '{':'c' };
   s = (s || '').toLowerCase().split('').map(ch => OCR_CONF[ch] !== undefined ? OCR_CONF[ch] : ch).join('');
   s = s.replace(/[^a-z ]+/g, ' ');
   for (const [a, b] of [['rn','m'], ['vv','w'], ['ii','i'], ['ll','l']]) s = s.split(a).join(b);
@@ -64,7 +55,6 @@ function bigrams(s) {
   return out;
 }
 
-// Bigram Dice coefficient — robust to OCR garble within words
 function diceSimilarity(a, b) {
   const A = bigrams(a), B = bigrams(b);
   if (!A.size || !B.size) return 0;
@@ -73,7 +63,6 @@ function diceSimilarity(a, b) {
   return 2 * inter / (A.size + B.size);
 }
 
-// Token F1 — catches whole-word matches even when chars are mangled
 function tokenF1(a, b) {
   const ta = a.split(' ').filter(Boolean), tb = b.split(' ').filter(Boolean);
   if (!ta.length || !tb.length) return 0;
@@ -83,7 +72,6 @@ function tokenF1(a, b) {
   return 2 * inter / (ta.length + tb.length);
 }
 
-// Combined score for a raw OCR string vs a plant name
 function nameScore(rawLine, plantName) {
   const r = normalizeName(rawLine), n = normalizeName(plantName);
   let base = Math.max(diceSimilarity(r.replace(/ /g,''), n.replace(/ /g,'')), 0.85 * tokenF1(r, n));
@@ -92,24 +80,22 @@ function nameScore(rawLine, plantName) {
   return base;
 }
 
-// Best plant for a raw OCR line (or array of variant lines — the
-// best-scoring match across all variants wins)
 function bestMatchPlant(rawLines) {
-  const lines = Array.isArray(rawLines) ? rawLines : [rawLines];
-  // candidates: each variant line alone + the joined text (multi-line names
-  // like "Thousand / Year Lotus" only score high when rejoined)
+  const lines = (Array.isArray(rawLines) ? rawLines : [rawLines]).filter(l => l && l.trim().length >= 3);
+  if (!lines.length) return { best: null, bestScore: 0 };
   const joined = lines.join(' ');
-  const cands = joined ? [joined, ...lines] : lines;
+  const cands = [joined, ...lines];
   let best = null, bestScore = 0;
   for (const line of cands) {
-    if (!line || line.length < 3) continue;
     for (const name of Object.keys(PLANTS)) {
       const s = nameScore(line, name);
       if (s > bestScore) { best = name; bestScore = s; }
     }
   }
   return { best, bestScore };
-}// ------------------------------------------------------------
+}
+
+// ------------------------------------------------------------
 // 3. OCR ENGINE
 // ------------------------------------------------------------
 
@@ -117,15 +103,13 @@ async function ensureVisionWorker(onProgress) {
   if (visionWorkerReady && visionWorker) return visionWorker;
   const T = window.Tesseract;
   if (!T) throw new Error('Tesseract.js failed to load');
-  const setStatus = (msg) => {
-    if (onProgress) onProgress(msg);
-  };
+  const setStatus = (msg) => { if (onProgress) onProgress(msg); };
   setStatus('Loading OCR engine…');
   visionWorker = await T.createWorker('eng', 1, {
     workerPath: VENDOR_BASE + 'worker.min.js',
     corePath: VENDOR_BASE,
     langPath: VENDOR_BASE,
-    gzip: false, // we vendor plain eng.traineddata (not .gz) — default gzip:true 404s
+    gzip: false,
     logger: m => {
       if (m.status === 'loading tesseract core') setStatus('Loading OCR core…');
       else if (m.status === 'initializing tesseract') setStatus('Initializing OCR…');
@@ -139,12 +123,11 @@ async function ensureVisionWorker(onProgress) {
 }
 
 // ------------------------------------------------------------
-// 4. CELL DETECTION
+// 4. CELL DETECTION (bracket-gray clusters, adaptive split)
 // ------------------------------------------------------------
 
-// The corner brackets + frame render as a narrow gray band
-// (luma ~140–190) on a dark background. Flood-fill that mask into
-// clusters; each cell's bracket group forms a ~151×195 box.
+const BR_BUCKET = 24; // flood-fill bucket size
+
 async function detectCells(file) {
   const img = await createImageBitmap(file);
   const W = img.width, H = img.height;
@@ -154,26 +137,25 @@ async function detectCells(file) {
   ctx.drawImage(img, 0, 0);
   const d = ctx.getImageData(0, 0, W, H).data;
 
-  const isBracketGray = (x, y) => {
+  const lumaAt = (x, y) => {
     const i = (y * W + x) * 4;
-    const g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-    return g >= 140 && g <= 190;
+    return 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
   };
 
-  // sparse point list, bucketed for flood fill (24px buckets, like the prototype)
-  const B = 24;
-  const buckets = new Map(); // "bx,by" -> [x,y,...]
+  // bucket the bracket-gray mask
+  const buckets = new Map();
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
-      if (isBracketGray(x, y)) {
-        const k = ((x / B) | 0) + ',' + ((y / B) | 0);
+      const l = lumaAt(x, y);
+      if (l >= 140 && l <= 190) {
+        const k = ((x / BR_BUCKET) | 0) + ',' + ((y / BR_BUCKET) | 0);
         if (!buckets.has(k)) buckets.set(k, []);
         buckets.get(k).push(x, y);
       }
     }
   }
 
-  // flood-fill bucket adjacency (8-neighbour)
+  // flood-fill adjacent buckets into clusters
   const seen = new Set();
   const clusters = [];
   for (const key of buckets.keys()) {
@@ -185,7 +167,7 @@ async function detectCells(file) {
       const k = stack.pop();
       const arr = buckets.get(k);
       for (let i = 0; i < arr.length; i += 2) comp.push(arr[i], arr[i + 1]);
-      const [bx, by] = k.split(',').map(Number);
+      const ci = k.indexOf(','), bx = +k.slice(0, ci), by = +k.slice(ci + 1);
       for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
         const nk = (bx + dx) + ',' + (by + dy);
         if (!seen.has(nk) && buckets.has(nk)) { seen.add(nk); stack.push(nk); }
@@ -203,150 +185,319 @@ async function detectCells(file) {
     }
   }
 
-  // Split wide merged clusters back into two canonical cells;
-  // keep cell-sized clusters as-is; drop junk.
+  // adaptive split of wide clusters at zero-density column gaps
   const cells = [];
-  for (const [x0, y0, x1, y1] of clusters) {
+  const splitWide = (box) => {
+    const [x0, y0, x1, y1] = box;
     const w = x1 - x0;
-    if (w >= 200) {
-      cells.push([x0, y0, x0 + CELL_W, y1]);
-      cells.push([x1 - CELL_W, y0, x1, y1]);
-    } else if (w >= 120) {
-      cells.push([x0, y0, x1, y1]);
+    if (w < 220) { cells.push(box); return; }
+    // column density of bracket-gray pixels
+    const colcnt = new Array(w).fill(0);
+    for (let x = x0; x <= x1; x++) {
+      let c2 = 0;
+      for (let y = y0; y <= y1; y++) {
+        const l = lumaAt(x, y);
+        if (l >= 140 && l <= 190) c2++;
+      }
+      colcnt[x - x0] = c2;
     }
+    // longest zero run in the middle 60%
+    const lo = (w * 0.2) | 0, hi = (w * 0.8) | 0;
+    let bs = -1, bl = 0, cs = -1, cl = 0;
+    for (let i = lo; i < hi; i++) {
+      if (colcnt[i] === 0) {
+        if (cs < 0) cs = i;
+        cl++;
+        if (cl > bl) { bl = cl; bs = cs; }
+      } else { cs = -1; cl = 0; }
+    }
+    let left, right;
+    if (bs < 0 || bl < 4) {
+      const mid = x0 + (w >> 1);
+      left = [x0, y0, mid, y1]; right = [mid, y0, x1, y1];
+    } else {
+      const gs = x0 + bs - 8, ge = x0 + bs + bl + 8;
+      left = [x0, y0, gs, y1]; right = [ge, y0, x1, y1];
+    }
+    for (const b2 of [left, right]) if (b2[2] - b2[0] >= 100) splitWide(b2);
+  };
+  for (const cl of clusters) {
+    if (cl[2] - cl[0] < 100 || cl[3] - cl[1] < 100) continue; // junk
+    splitWide(cl);
   }
-  // grid sort + dedupe near-identical boxes
+
+  // grid sort + dedupe
   cells.sort((a, b) => ((a[1] / 100) | 0) - ((b[1] / 100) | 0) || a[0] - b[0]);
   const dedup = [];
   for (const c2 of cells) {
     if (!dedup.some(dd => Math.abs(c2[0] - dd[0]) < 40 && Math.abs(c2[1] - dd[1]) < 40)) dedup.push(c2);
   }
   return { cells: dedup, bitmap: img, W, H };
-}// ------------------------------------------------------------
-// 5. PER-CELL OCR
+}
+
+// ------------------------------------------------------------
+// 5. BLACK ROW GROUPS (badge + name line detection)
 // ------------------------------------------------------------
 
-// Grayscale + threshold a crop in-place; bright text → black on white
-// (the game renders white outlined text; thresholding kills the busy
-// icon background behind the name band)
-function thresholdCrop(ctx, x, y, w, h, thr) {
+// Contiguous row groups with ≥8 pure-black (luma<25) pixels in the
+// cell interior. The badge is the group whose top sits at 25-68% of
+// cell height; name lines live at ≥73%.
+function blackRowGroups(d, W, H, box) {
+  const [x0, y0, x1, y1] = box;
+  const xm0 = x0 + 6, xm1 = x1 - 6;
+  const groups = [];
+  let cur = null;
+  for (let y = y0; y <= Math.min(y1, H - 1); y++) {
+    let blacks = 0;
+    for (let x = xm0; x < xm1; x++) {
+      const i = (y * W + x) * 4;
+      const l = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      if (l < 25) { blacks++; if (blacks >= 8) break; }
+    }
+    if (blacks >= 8) {
+      if (!cur) cur = [y, y];
+      else cur[1] = y;
+    } else {
+      if (cur && cur[1] - cur[0] >= 8) groups.push(cur);
+      cur = null;
+    }
+  }
+  if (cur && cur[1] - cur[0] >= 8) groups.push(cur);
+  return groups;
+}// ------------------------------------------------------------
+// 6. PER-CELL OCR (adaptive zones + multi-config badge voting)
+// ------------------------------------------------------------
+
+function makeCanvas(w, h) {
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
+  return c;
+}
+
+// grayscale + threshold, dark-on-light
+function thresholdCrop(ctx, x, y, w, h, thr) {
+  const c = makeCanvas(w, h);
   const cc = c.getContext('2d', { willReadFrequently: true });
   cc.drawImage(ctx.canvas, x, y, w, h, 0, 0, w, h);
   const im = cc.getImageData(0, 0, w, h);
   const dd = im.data;
   for (let i = 0; i < dd.length; i += 4) {
     const g = 0.299 * dd[i] + 0.587 * dd[i + 1] + 0.114 * dd[i + 2];
-    const v = g >= thr ? 0 : 255; // bright → black (Tesseract wants dark on light)
+    const v = g > thr ? 0 : 255;
     dd[i] = dd[i + 1] = dd[i + 2] = v;
   }
   cc.putImageData(im, 0, 0);
   return c;
 }
 
-// Extract the quantity integer from a qty-zone OCR string.
-// Prefer the "x<digits>" form (the badge is always xNN); a bare
-// number is accepted only if no x-form exists (bracket artifacts
-// often glue extra digits, e.g. "x4" → "~pxX45," is rejected by
-// preferring the x-form with the shortest digit run).
-function extractQtyFromZone(raw) {
-  if (!raw) return null;
-  const xForms = [];
-  for (const m of raw.matchAll(/x\s*(\d{1,4})/gi)) xForms.push(parseInt(m[1], 10));
-  if (xForms.length) {
-    // badge digits run 1–3; prefer the shortest (bracket artifacts append)
-    xForms.sort((a, b) => String(a).length - String(b).length || a - b);
-    const v = xForms[0];
-    return v > 0 && v <= 9999 ? v : null;
+// autocontrast a grayscale crop (2% tail clip like PIL autocontrast)
+function autocontrastCrop(ctx, x, y, w, h) {
+  const c = makeCanvas(w, h);
+  const cc = c.getContext('2d', { willReadFrequently: true });
+  cc.drawImage(ctx.canvas, x, y, w, h, 0, 0, w, h);
+  const im = cc.getImageData(0, 0, w, h);
+  const dd = im.data;
+  const hist = new Uint32Array(256);
+  let n = 0;
+  for (let i = 0; i < dd.length; i += 4) {
+    const g = Math.round(0.299 * dd[i] + 0.587 * dd[i + 1] + 0.114 * dd[i + 2]);
+    hist[g]++; n++;
   }
-  const m = raw.match(/(?<![\dx])(\d{1,3})(?![\dx])/i);
-  if (m) {
-    const v = parseInt(m[1], 10);
-    if (v > 0 && v <= 999) return v;
+  const cut = Math.max(1, Math.round(n * 0.02));
+  let lo = 0, hi = 255, acc = 0;
+  for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= cut) { lo = v; break; } }
+  acc = 0;
+  for (let v = 255; v >= 0; v--) { acc += hist[v]; if (acc >= cut) { hi = v; break; } }
+  const scale = hi > lo ? 255 / (hi - lo) : 1;
+  for (let i = 0; i < dd.length; i += 4) {
+    const g = 0.299 * dd[i] + 0.587 * dd[i + 1] + 0.114 * dd[i + 2];
+    const v = Math.max(0, Math.min(255, Math.round((g - lo) * scale)));
+    dd[i] = dd[i + 1] = dd[i + 2] = v;
   }
-  return null;
+  cc.putImageData(im, 0, 0);
+  return c;
 }
 
-async function ocrCell(worker, ctx, cell) {
-  const [x0, y0, x1, y1] = cell;
-  const cw = x1 - x0;
-  const H = ctx.canvas.height;
+function upscale(src, factor) {
+  const c = makeCanvas(src.width * factor, src.height * factor);
+  const cc = c.getContext('2d');
+  cc.imageSmoothingEnabled = true;
+  cc.imageSmoothingQuality = 'high';
+  cc.drawImage(src, 0, 0, c.width, c.height);
+  return c;
+}
 
-  // --- quantity zone ---
-  let qty = null, qtyRaw = '';
-  {
-    const qy0 = y0 + QTY_DY0, qy1 = Math.min(y0 + QTY_DY1, H);
-    if (qy1 - qy0 >= 25) {
-      const crop = thresholdCrop(ctx, x0, qy0, cw, qy1 - qy0, 170);
-      const up = document.createElement('canvas');
-      up.width = crop.width * UPSCALE; up.height = crop.height * UPSCALE;
-      const uc = up.getContext('2d');
-      uc.imageSmoothingEnabled = true; uc.imageSmoothingQuality = 'high';
-      uc.drawImage(crop, 0, 0, up.width, up.height);
-      const { data: { text } } = await worker.recognize(up);
-      qtyRaw = (text || '').trim();
-      qty = extractQtyFromZone(qtyRaw);
+// morphological close for binary (black text on white): dilate then
+// erode the BLACK ink via MaxFilter-then-MinFilter equivalents.
+// PIL MinFilter(k) erodes WHITE (=dilates black); MaxFilter erodes black.
+function closeBinary(canvas, k) {
+  const w = canvas.width, h = canvas.height;
+  const src = canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, w, h);
+  const pass = (dark) => {
+    const out = new Uint8ClampedArray(w * h);
+    const r = (k - 1) >> 1;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      let best = dark ? 255 : 0;
+      for (let dy = -r; dy <= r; dy++) {
+        const yy = Math.min(h - 1, Math.max(0, y + dy));
+        for (let dx = -r; dx <= r; dx++) {
+          const xx = Math.min(w - 1, Math.max(0, x + dx));
+          const v = src.data[yy * w * 4 + xx * 4];
+          if (dark) { if (v < best) best = v; }      // min filter = dilate black
+          else { if (v > best) best = v; }           // max filter = erode black
+        }
+      }
+      out[y * w + x] = best;
+    }
+    return out;
+  };
+  const dilated = pass(true);
+  // now erode using the dilated image
+  const out = new Uint8ClampedArray(w * h);
+  const r = (k - 1) >> 1;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let best = 0;
+    for (let dy = -r; dy <= r; dy++) {
+      const yy = Math.min(h - 1, Math.max(0, y + dy));
+      for (let dx = -r; dx <= r; dx++) {
+        const xx = Math.min(w - 1, Math.max(0, x + dx));
+        const v = dilated[yy * w + xx];
+        if (v > best) best = v;
+      }
+    }
+    out[y * w + x] = best;
+  }
+  const c = makeCanvas(w, h);
+  const cc = c.getContext('2d');
+  const im = cc.createImageData(w, h);
+  for (let i = 0; i < out.length; i++) {
+    im.data[i * 4] = im.data[i * 4 + 1] = im.data[i * 4 + 2] = out[i];
+    im.data[i * 4 + 3] = 255;
+  }
+  cc.putImageData(im, 0, 0);
+  return c;
+}
+
+// quantity parse with digit fixups for hollow-serif misreads
+function parseQtyText(txt) {
+  if (!txt) return null;
+  txt = txt.toUpperCase();
+  // prefer the digits following an 'x' (the badge format); the 'x' anchor
+  // avoids picking up bracket-artifact digits standing alone
+  const xm = txt.match(/[X|]\s*(\d{1,4})/);
+  let ms;
+  if (xm) {
+    const v = xm[1].replace(/I/g,'1').replace(/L/g,'1').replace(/S/g,'5').replace(/O/g,'0').replace(/B/g,'8').replace(/Z/g,'2').replace(/G/g,'6').replace(/D/g,'0');
+    const n = parseInt(v, 10);
+    return (n > 0 && n <= 9999) ? n : null;
+  }
+  txt = txt.replace(/I/g,'1').replace(/L/g,'1').replace(/\|/g,'1').replace(/S/g,'5').replace(/O/g,'0').replace(/B/g,'8').replace(/Z/g,'2').replace(/G/g,'6').replace(/D/g,'0');
+  ms = (txt.match(/\d{1,4}/g) || []).sort((a, b) => a.length - b.length || a - b);
+  if (!ms.length) return null;
+  const v = parseInt(ms[0], 10);
+  return (v > 0 && v <= 9999) ? v : null;
+}
+
+async function ocrCanvas(worker, canvas, psm) {
+  const { data: { text } } = await worker.recognize(canvas, {}, { text: true });
+  return text || '';
+}
+
+// Multi-config badge OCR with majority vote; returns {qty, conf}
+async function readBadgeQty(worker, ctx, box, badge) {
+  const [x0, , x1] = box;
+  const by0 = badge[0], by1 = badge[1];
+  const votes = [];
+  for (const pad of [3, 6]) {
+    for (const zoom of [6, 8]) {
+      const cx = x0 + 2, cy = Math.max(0, by0 - pad);
+      const cw = x1 - x0 - 4, ch = by1 - by0 + pad * 2;
+      if (cw < 20 || ch < 10) continue;
+      // variant A: autocontrast raw
+      const a = upscale(autocontrastCrop(ctx, cx, cy, cw, ch), zoom);
+      const tA = await ocrCanvas(worker, a, 7);
+      const vA = parseQtyText(tA);
+      if (vA) votes.push(vA);
+      // variant B: threshold + close
+      let b = thresholdCrop(ctx, cx, cy, cw, ch, 110);
+      b = upscale(b, zoom);
+      b = closeBinary(b, 3);
+      const tB = await ocrCanvas(worker, b, 7);
+      const vB = parseQtyText(tB);
+      if (vB) votes.push(vB);
     }
   }
+  if (!votes.length) return { qty: null, conf: 0 };
+  const counts = new Map();
+  for (const v of votes) counts.set(v, (counts.get(v) || 0) + 1);
+  let top = null, bestN = 0;
+  for (const [v, n] of counts) if (n > bestN) { top = v; bestN = n; }
+  return { qty: top, conf: bestN / votes.length };
+}
 
-  // --- name zone: 3 OCR variants, keep all raw lines for matching ---
+async function ocrCell(worker, ctx, d, W, H, cell) {
+  const [x0, y0, x1, y1] = cell;
+  const h = y1 - y0;
+
+  // black row groups → badge + name zones
+  const groups = blackRowGroups(d, W, H, cell);
+  let badge = null;
+  for (const g of groups) {
+    const frac = (g[0] - y0) / h;
+    if (frac >= 0.25 && frac <= 0.68) { badge = g; break; }
+  }
+
+  // NAME: proportional bottom zone (robust even when name rows have
+  // fewer than 8 black px) — validated 21/24 on real screenshots
   const nameLines = [];
-  {
-    const ny0 = y0 + NAME_DY0, ny1 = Math.min(y0 + NAME_DY1, y1, H);
-    if (ny1 - ny0 >= 20) {
-      const variants = [
-        thresholdCrop(ctx, Math.max(0, x0 - 6), ny0, cw + 12, ny1 - ny0, 170),
-        thresholdCrop(ctx, Math.max(0, x0 - 6), ny0, cw + 6, ny1 - ny0, 150)
-      ];
-      // raw (unthresholded) variant — sometimes the outline survives better
-      {
-        const rc = document.createElement('canvas');
-        rc.width = cw + 6; rc.height = ny1 - ny0;
-        const rcc = rc.getContext('2d');
-        rcc.drawImage(ctx.canvas, Math.max(0, x0 - 6), ny0, cw + 6, ny1 - ny0, 0, 0, cw + 6, ny1 - ny0);
-        variants.push(rc);
-      }
-      for (const v of variants) {
-        const up = document.createElement('canvas');
-        up.width = v.width * UPSCALE; up.height = v.height * UPSCALE;
-        const uc = up.getContext('2d');
-        uc.imageSmoothingEnabled = true; uc.imageSmoothingQuality = 'high';
-        uc.drawImage(v, 0, 0, up.width, up.height);
-        const { data: { text } } = await worker.recognize(up);
-        for (const line of (text || '').split(/\n+/)) {
-          const t = line.trim();
-          if (t.length >= 3) nameLines.push(t);
-        }
+  const ny0 = y0 + Math.floor(h * 0.73);
+  const ny1 = Math.min(y0 + Math.floor(h * 0.99), H - 1);
+  if (ny1 - ny0 >= 15 && x1 - x0 >= 60) {
+    for (const thr of [110, 150]) {
+      let g2 = thresholdCrop(ctx, x0 - 2, ny0, (x1 - x0) + 4, ny1 - ny0, thr);
+      g2 = upscale(g2, 4);
+      g2 = closeBinary(g2, 3);
+      const text = await ocrCanvas(worker, g2, 6);
+      for (const ln of text.split(/\n+/)) {
+        const t = ln.trim();
+        if (t.length >= 3) nameLines.push(t);
       }
     }
   }
 
   const { best, bestScore } = bestMatchPlant(nameLines);
-  const NAME_MIN = 0.40;
-  return {
-    name: bestScore >= NAME_MIN ? best : null,
-    nameScore: bestScore,
-    qty,
-    raw: { nameLines, qtyRaw }
-  };
+
+  // QTY: badge black-group, multi-config vote
+  let qty = null, qtyConf = 0;
+  if (badge) {
+    const r = await readBadgeQty(worker, ctx, cell, badge);
+    qty = r.qty; qtyConf = r.conf;
+  }
+
+  return { name: best, nameScore: bestScore, qty, qtyConf, raw: nameLines };
 }// ------------------------------------------------------------
-// 6. CONFIRM OVERLAY
+// 7. CONFIRM OVERLAY
 // ------------------------------------------------------------
 
-function showVisionConfirm(found) {
+function showVisionConfirm(rows) {
+  // rows: [{name, nameScore, qty, qtyConf, count(nCells)}]
   return new Promise((resolve) => {
     const overlay = document.createElement('div');
     overlay.className = 'vision-overlay';
-    const rows = Object.entries(found).sort((a, b) => (PLANTS[a[0]]?.score[0]||0) - (PLANTS[b[0]]?.score[0]||0))
-      .map(([name, qty], i) => `
-        <div class="vision-row">
-          <input type="checkbox" class="vision-check" id="vchk-${i}" checked>
-          <label for="vchk-${i}" class="vision-name">${name}</label>
-          <input type="number" class="vision-qty" min="0" value="${qty}" data-plant="${name}">
-          <span class="vision-score">${PLANTS[name]?.rarity || ''}</span>
-        </div>
-      `).join('');
+    const body = rows.map((r, i) => {
+      const auto = r.nameScore >= 0.40;
+      const lowConf = r.qtyConf < 0.5;
+      return `
+        <div class="vision-row ${auto ? '' : 'vision-uncertain'}">
+          <input type="checkbox" class="vision-check" id="vchk-${i}" ${auto ? 'checked' : ''}>
+          <label for="vchk-${i}" class="vision-name">${r.name}</label>
+          <input type="number" class="vision-qty ${lowConf ? 'vision-flag' : ''}" min="0"
+                 value="${r.qty ?? ''}" data-plant="${r.name}"
+                 placeholder="${r.qtyConf === 0 ? '?' : ''}"
+                 title="${lowConf ? 'OCR was unsure about this number — please double-check' : ''}">
+          <span class="vision-score">${r.qtyConf === 0 ? '⚠️ qty?' : (lowConf ? '⚠️ check qty' : '')}</span>
+        </div>`;
+    }).join('');
 
     overlay.innerHTML = `
       <div class="vision-modal">
@@ -354,10 +505,12 @@ function showVisionConfirm(found) {
           <span>📸 Detected herbs — review before applying</span>
           <button class="btn vision-close">×</button>
         </div>
-        <div class="vision-rows">${rows || '<div class="no-results">No herbs detected. Make sure the screenshots show the plant inventory grid (items with corner brackets).</div>'}</div>
+        <div class="vision-rows">
+          ${body || '<div class="no-results">No herbs detected. Make sure the screenshots show the plant inventory grid (items with corner brackets).</div>'}
+        </div>
         <div class="vision-modal-actions">
           <button class="btn" id="vision-cancel">Cancel</button>
-          <button class="btn btn-primary" id="vision-apply" ${Object.keys(found).length ? '' : 'disabled'}>Apply to Inventory</button>
+          <button class="btn btn-primary" id="vision-apply" ${rows.length ? '' : 'disabled'}>Apply to Inventory</button>
         </div>
       </div>
     `;
@@ -371,19 +524,22 @@ function showVisionConfirm(found) {
       overlay.querySelectorAll('.vision-row').forEach(row => {
         const chk = row.querySelector('.vision-check');
         const qtyEl = row.querySelector('.vision-qty');
-        if (chk && chk.checked) applied[qtyEl.dataset.plant] = Math.max(0, parseInt(qtyEl.value, 10) || 0);
+        if (chk && chk.checked && qtyEl.value !== '') {
+          applied[qtyEl.dataset.plant] = Math.max(0, parseInt(qtyEl.value, 10) || 0);
+        }
       });
       close(applied);
     };
+    // focus the first flagged qty for quick fixing
+    const firstFlag = overlay.querySelector('.vision-qty.vision-flag');
+    if (firstFlag) firstFlag.focus();
   });
 }
 
 // ------------------------------------------------------------
-// 7. MAIN ENTRY — BATCH QUEUE
+// 8. MAIN ENTRY — BATCH QUEUE
 // ------------------------------------------------------------
 
-// OCR every image (cell-based), SUM quantities per plant across
-// images, then show ONE combined confirm overlay.
 async function runVisionImport(files) {
   if (visionBatchActive) return; // single-flight
   visionBatchActive = true;
@@ -401,8 +557,9 @@ async function runVisionImport(files) {
       if (statusEl) statusEl.textContent = msg;
     });
 
-    const totals = {}; // plantName -> summed qty across images
-    let failed = 0, detected = 0;
+    // aggregate per plant
+    const agg = new Map(); // name -> {qty total, worstConf, cells, bestScore}
+    let failed = 0;
 
     for (let i = 0; i < list.length; i++) {
       const file = list[i];
@@ -410,26 +567,32 @@ async function runVisionImport(files) {
       try {
         if (statusEl) statusEl.textContent = `Reading screenshot ${n} of ${list.length}…`;
         const { cells, bitmap } = await detectCells(file);
-        if (!cells.length) {
-          console.warn(`Vision: no grid cells found in image ${n}`);
-          continue;
-        }
-        // draw to a canvas once per image for crop access
-        const cc = document.createElement('canvas');
-        cc.width = bitmap.width; cc.height = bitmap.height;
+        if (!cells.length) { console.warn(`Vision: no grid cells found in image ${n}`); continue; }
+
+        const cc = makeCanvas(bitmap.width, bitmap.height);
         const ctx = cc.getContext('2d', { willReadFrequently: true });
         ctx.drawImage(bitmap, 0, 0);
+        const imgData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+        const d = imgData.data;
+        const W = bitmap.width, H = bitmap.height;
 
+        let done = 0;
         for (const cell of cells) {
-          const res = await ocrCell(worker, ctx, cell);
-          if (res.name && res.qty !== null) {
-            totals[res.name] = (totals[res.name] || 0) + res.qty;
-            detected++;
+          const res = await ocrCell(worker, ctx, d, W, H, cell);
+          if (!res.name || res.nameScore < 0.25) continue;
+          const cur = agg.get(res.name) || { qty: 0, worstConf: 1, cells: 0, nameScore: 0 };
+          cur.cells++;
+          cur.nameScore = Math.max(cur.nameScore, res.nameScore);
+          if (res.qty !== null) {
+            cur.qty += res.qty;
+            cur.worstConf = Math.min(cur.worstConf, res.qtyConf);
           } else {
-            console.log(`Vision: cell @(${cell[0]},${cell[1]}) incomplete`, res.raw);
+            cur.worstConf = 0; // unknown qty somewhere → flag
           }
+          agg.set(res.name, cur);
+          done++;
         }
-        if (statusEl) statusEl.textContent = `Reading screenshot ${n} of ${list.length} — ${cells.length} items found`;
+        if (statusEl) statusEl.textContent = `Reading screenshot ${n} of ${list.length} — ${done}/${cells.length} items`;
       } catch (err) {
         failed++;
         console.error(`Vision import failed for image ${n} of ${list.length}:`, err);
@@ -438,18 +601,21 @@ async function runVisionImport(files) {
     }
 
     if (statusEl) {
+      const kinds = agg.size;
       statusEl.textContent = failed
         ? `Done with ${failed} screenshot(s) failed — review below.`
-        : (Object.keys(totals).length
-          ? `Detected ${Object.keys(totals).length} herb type(s) across ${list.length} screenshot(s) — review below.`
+        : (kinds
+          ? `Detected ${kinds} herb type(s) across ${list.length} screenshot(s) — review below.`
           : 'No herbs detected — check the screenshots show the inventory grid.');
     }
 
-    const applied = await showVisionConfirm(totals);
+    const rows = [...agg.entries()].map(([name, v]) => ({
+      name, nameScore: v.nameScore, qty: v.qty || null,
+      qtyConf: v.qty, conf: v.worstConf, count: v.cells
+    }));
+    const applied = await showVisionConfirm(rows);
     if (applied && Object.keys(applied).length) {
-      for (const [name, qty] of Object.entries(applied)) {
-        setQty(name, qty);
-      }
+      for (const [name, qty] of Object.entries(applied)) setQty(name, qty);
       if (window.AudioController) window.AudioController.playDone();
       if (statusEl) statusEl.textContent = `Applied ${Object.keys(applied).length} herb type(s) to inventory.`;
     }
@@ -462,27 +628,23 @@ async function runVisionImport(files) {
   }
 }
 
-// Pre-warm the OCR engine so the first paste/click doesn't sit through the
-// ~9 MB cold load. Single-flight with runVisionImport.
+// Pre-warm the OCR engine (single-flight with runVisionImport)
 function warmUpVision() {
   const conn = navigator.connection || {};
   if (conn.saveData || navigator.onLine === false) return;
   const statusEl = document.getElementById(VISION_STATUS_ID);
   if (statusEl) statusEl.textContent = '⏳ Pre-loading OCR engine…';
-  visionWorkerReadyPromise = ensureVisionWorker((msg) => {
+  ensureVisionWorker((msg) => {
     if (statusEl) statusEl.textContent = `⏳ ${msg}`;
-  }).then((worker) => {
+  }).then(() => {
     if (statusEl) statusEl.textContent = '✅ OCR ready — paste screenshots anytime';
     setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 4000);
-    return worker;
   }).catch((err) => {
     console.warn('Vision warmup failed (will retry on first paste):', err);
-    visionWorkerReadyPromise = null;
     if (statusEl) statusEl.textContent = '';
   });
 }
 
-// Init: wire up the hidden file input
 function initVision() {
   const input = document.getElementById('vision-file-input');
   const btn = document.getElementById('btn-vision');

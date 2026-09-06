@@ -1024,3 +1024,7 @@ body.locked {
   color: var(--text-muted);
   margin-top: 0.5rem;
 }
+/* v3.1: uncertain rows (low name score) shown unticked + dimmed */
+.vision-row.vision-uncertain .vision-name { color: var(--muted, #8a8); }
+/* v3.1: flagged quantities (low OCR confidence) */
+.vision-qty.vision-flag { border-color: var(--red, #e74c3c); background: rgba(231, 76, 60, 0.08); }
