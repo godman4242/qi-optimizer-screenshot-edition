@@ -611,7 +611,7 @@ async function runVisionImport(files) {
 
     const rows = [...agg.entries()].map(([name, v]) => ({
       name, nameScore: v.nameScore, qty: v.qty || null,
-      qtyConf: v.qty, conf: v.worstConf, count: v.cells
+      qtyConf: v.worstConf, count: v.cells
     }));
     const applied = await showVisionConfirm(rows);
     if (applied && Object.keys(applied).length) {
