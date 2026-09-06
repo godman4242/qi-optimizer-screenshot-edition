@@ -47,6 +47,14 @@ Four gates:
 | `tests/ocr-bench.mjs` | Playwright | **OCR accuracy and speed on real screenshots** |
 | `tests/ui-smoke.mjs` | Playwright | the page actually wires together, end to end |
 
+Plus, after deploying:
+
+```bash
+node tests/verify-live.mjs
+```
+
+which loads the **public URL** in a fresh browser with an empty cache and runs the real screenshots through the deployed build. Uploading files is not the same as the site working — this is what proves it.
+
 Playwright is dev-only — install once with `npm i -g playwright && npx playwright install chromium`. Without it the last two report `SKIPPED` and the run still passes on the first two.
 
 ## Changing the OCR

@@ -86,6 +86,8 @@ node tests/all.mjs
 
 That runs four gates: the alchemy/optimiser assertions, the unit tests, the **OCR benchmark against real screenshots**, and an end-to-end browser smoke test. The first two need nothing installed; the last two use Playwright as a dev-only dependency and report `SKIPPED` if it isn't there.
 
+`node tests/verify-live.mjs` does the same accuracy check against the **deployed** site in a fresh browser, so a green local run can't be mistaken for a working deploy.
+
 ## 🙏 Credits
 
 This project would not exist without:
