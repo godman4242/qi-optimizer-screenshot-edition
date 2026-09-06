@@ -1028,3 +1028,148 @@ body.locked {
 .vision-row.vision-uncertain .vision-name { color: var(--muted, #8a8); }
 /* v3.1: flagged quantities (low OCR confidence) */
 .vision-qty.vision-flag { border-color: var(--red, #e74c3c); background: rgba(231, 76, 60, 0.08); }
+
+/* ============================================================
+   SCREENSHOT AUTOFILL v4 — review overlay additions
+   ============================================================ */
+
+/* Each row now carries a crop of the cell it was read from, so a player can
+   confirm a row by glancing at the picture instead of trusting a name they
+   have no way to check. */
+.vision-thumb {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  object-fit: cover;
+  object-position: center top;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-deep);
+  image-rendering: auto;
+}
+.vision-thumb-empty {
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+  font-size: 1rem;
+}
+
+.vision-row { align-items: center; }
+.vision-row.vision-uncertain {
+  background: rgba(224, 85, 85, 0.05);
+  border-left: 2px solid var(--red);
+  padding-left: 0.5rem;
+  margin-left: -0.2rem;
+}
+.vision-guess {
+  font-size: 0.7rem;
+  color: var(--red);
+  font-style: italic;
+}
+
+.vision-score {
+  width: auto;
+  min-width: 16px;
+  white-space: nowrap;
+  font-size: 0.7rem;
+}
+
+.vision-modal-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.vision-mini {
+  font-size: 0.7rem;
+  padding: 0.25rem 0.6rem;
+}
+.vision-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.vision-mode input { accent-color: var(--jade); }
+.vision-mode:hover { color: var(--text); }
+
+.vision-modal-actions { align-items: center; }
+.vision-hint {
+  margin-right: auto;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.vision-undo {
+  margin-left: 0.4rem;
+  border-color: var(--gold);
+  color: var(--gold-light);
+}
+
+/* Drop a screenshot anywhere on the page. */
+body.vision-dragging::after {
+  content: "⚗️  Drop your inventory screenshot";
+  position: fixed;
+  inset: 12px;
+  z-index: 9000;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  border: 2px dashed var(--jade);
+  border-radius: 16px;
+  background: rgba(10, 12, 20, 0.82);
+  color: var(--jade);
+  font-size: 1.1rem;
+  letter-spacing: 0.04em;
+}
+
+@media (max-width: 560px) {
+  .vision-thumb, .vision-thumb-empty { width: 36px; height: 36px; flex-basis: 36px; }
+  .vision-qty { width: 68px; }
+  .vision-name { font-size: 0.78rem; }
+  .vision-modal-tools { gap: 0.35rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.vision-dragging::after { transition: none; }
+}
+
+/* The keyboard hint is meaningless on a touch device and wraps the footer to
+   four lines on a narrow screen. */
+@media (max-width: 560px), (hover: none) {
+  .vision-hint { display: none; }
+  .vision-modal-actions { justify-content: flex-end; }
+}
+
+/* Backup / restore dialog */
+.backup-body { padding: 0.8rem 1rem; overflow-y: auto; flex: 1; }
+.backup-hint { font-size: 0.78rem; color: var(--text-muted); margin: 0 0 0.6rem; line-height: 1.5; }
+.backup-text {
+  width: 100%;
+  min-height: 220px;
+  resize: vertical;
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 0.6rem 0.7rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+.backup-text:focus { outline: none; border-color: var(--jade); }
+.backup-status { margin-top: 0.5rem; font-size: 0.75rem; color: var(--jade); min-height: 1.2em; }
+
+/* "these herbs were not in the screenshots" footnote */
+.vision-untouched {
+  padding: 0.5rem 1rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+  background: rgba(201, 168, 76, 0.05);
+}

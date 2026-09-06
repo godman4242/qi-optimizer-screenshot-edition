@@ -1,0 +1,49 @@
+{
+  "_comment": [
+    "Ground truth for the OCR benchmark, read by eye from the fixture screenshots",
+    "at high zoom (2026-09-06). Reading order: left-to-right, top-to-bottom.",
+    "Only cells whose icon tile is FULLY visible are listed; a cell whose name",
+    "wraps off the bottom edge is still listed (that is a real-world condition the",
+    "matcher must survive) and is marked `clipped: true`.",
+    "",
+    "NOTE: an earlier hand-made file (.tmp/qi-test/badge_gt.txt) recorded",
+    "inv-04 cell 5 as `None`. That was a pipeline failure recorded as truth —",
+    "the badge plainly reads x4 (Starlight Dew Herb). Corrected here."
+  ],
+  "images": {
+    "inv-01.jpg": [
+      { "name": "Dandelion of Qi",         "qty": 28 },
+      { "name": "Crimson Flame Mushroom",  "qty": 24 },
+      { "name": "Heavenly Spirit Vine",    "qty": 6 },
+      { "name": "Red Ginseng",             "qty": 56 },
+      { "name": "Wild Spirit Grass",       "qty": 50, "clipped": true },
+      { "name": "Cloud Mist Herb",         "qty": 21, "clipped": true }
+    ],
+    "inv-02.jpg": [
+      { "name": "Common Spirit Grass",     "qty": 6 },
+      { "name": "Mountain Green Herb",     "qty": 51 },
+      { "name": "Moonlight Jade Leaf",     "qty": 4 },
+      { "name": "Spirit Spring Herb",      "qty": 29 }
+    ],
+    "inv-03.jpg": [
+      { "name": "Healing Sunflower",       "qty": 70 },
+      { "name": "Bitter Jade Grass",       "qty": 37 },
+      { "name": "Black Iron Root",         "qty": 17 },
+      { "name": "Blue Wave Coral Herb",    "qty": 15 },
+      { "name": "Basic Herb",              "qty": 27 },
+      { "name": "Nine Suns Flame Grass",   "qty": 4 }
+    ],
+    "inv-04.jpg": [
+      { "name": "Wild Bitter Grass",       "qty": 51 },
+      { "name": "Silverleaf Herb",         "qty": 29 },
+      { "name": "Azure Serpent Grass",     "qty": 30 },
+      { "name": "Purple Lightning Orchid", "qty": 20 },
+      { "name": "Starlight Dew Herb",      "qty": 4 },
+      { "name": "Seven Star Flower",       "qty": 29 }
+    ],
+    "inv-05.jpg": [
+      { "name": "Ironbone Grass",          "qty": 34 },
+      { "name": "Thousand Year Lotus",     "qty": 4 }
+    ]
+  }
+}

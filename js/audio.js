@@ -32,7 +32,33 @@ const AUDIO_FILES = {
   achievement_500: 'assets/achievement_500.mp3'
 };
 
+// Lazily-created <audio> elements, keyed exactly like AUDIO_FILES.
+// They used to be constructed eagerly at parse time, which fired 26 media
+// requests before the page had finished rendering — one of them for
+// achievement_200.mp3, which is not in the repo, so every single page load
+// logged a 404. Building them on first use costs nothing and means a missing
+// asset degrades to silence instead of an error.
 const audios = {};
+const missingAudio = new Set();
+
+function getAudio(key) {
+  if (missingAudio.has(key)) return null;
+  if (audios[key]) return audios[key];
+  const path = AUDIO_FILES[key];
+  if (!path) return null;
+  const a = new Audio();
+  a.preload = 'auto';
+  a.addEventListener('error', () => {
+    missingAudio.add(key);
+    delete audios[key];
+    console.warn(`Audio unavailable (skipping quietly): ${path}`);
+  }, { once: true });
+  a.src = path;
+  if (key === 'optimizing') a.loop = true;
+  audios[key] = a;
+  return a;
+}
+
 const queue = [];
 let isQueuePlaying = false;
 let craftedCount = 0;
@@ -40,14 +66,6 @@ const achievements = [1, 10, 25, 50, 75, 100, 125, 150, 175, 200, 225, 250, 275,
 
 // Tracks unlocked achievements
 let unlockedAchievements = new Set(); 
-
-// Preload audio elements
-for (const [key, path] of Object.entries(AUDIO_FILES)) {
-  audios[key] = new Audio(path);
-  if (key === 'optimizing') {
-    audios[key].loop = true;
-  }
-}
 
 // Load saved state from localStorage
 function loadAudioState() {
@@ -75,7 +93,7 @@ loadAudioState();
 
 // Play sound immediately, resetting to start if spammed (Interruptible)
 function playInterruptible(key) {
-  const a = audios[key];
+  const a = getAudio(key);
   if (!a) return;
   a.currentTime = 0;
   a.play().catch(e => console.warn(`Autoplay prevented for ${key}:`, e));
@@ -93,7 +111,7 @@ function processQueue() {
   
   isQueuePlaying = true;
   const key = queue.shift();
-  const a = audios[key];
+  const a = getAudio(key);
   
   if (!a) {
     isQueuePlaying = false;
@@ -141,21 +159,24 @@ window.AudioController = {
     saveAudioState();
   },
 
+  // Resets the RUNNING craft counter only. It used to clear
+  // `unlockedAchievements` too, which meant the "Clear Recipes" button
+  // silently wiped every milestone the player had ever reached — a lifetime
+  // record destroyed by a button whose job is to empty a results list.
   resetState: () => {
     craftedCount = 0;
-    unlockedAchievements.clear();
     saveAudioState();
   },
   
   startOptimizing: () => {
-    const a = audios['optimizing'];
+    const a = getAudio('optimizing');
     if (!a) return;
     a.currentTime = 0;
     a.play().catch(e => console.warn('Autoplay prevented for optimizing:', e));
   },
   
   stopOptimizing: () => {
-    const a = audios['optimizing'];
+    const a = audios['optimizing'];   // only stop what was actually started
     if (!a) return;
     a.pause();
     a.currentTime = 0;
@@ -164,8 +185,11 @@ window.AudioController = {
   playOptimizeEnd: () => {
     window.AudioController.stopOptimizing();
     
-    const endAudio = audios['optimize_end'];
-    const isPlayingRightNow = !endAudio.paused && endAudio.currentTime > 0 && !endAudio.ended;
+    const endAudio = getAudio('optimize_end');
+    // endAudio is null when the asset is missing — v3 dereferenced it blind and
+    // would have thrown on every optimise.
+    const isPlayingRightNow = !!endAudio && !endAudio.paused
+      && endAudio.currentTime > 0 && !endAudio.ended;
     const isAlreadyQueued = queue.includes('optimize_end');
 
     if (!isPlayingRightNow && !isAlreadyQueued) {
