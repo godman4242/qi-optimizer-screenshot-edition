@@ -35,9 +35,15 @@ async function findBestSet(pills, initialInventory, maxPills) {
   }
 
   pills.sort((a, b) => {
-    const diff = b.efficiency - a.efficiency;
-    if (Math.abs(diff) > 0.001) return diff;
-    
+    // Efficiencies within 0.001 are deliberately treated as ties so the qiMulti
+    // tie-break can win. Comparing with `Math.abs(diff) > 0.001` made the
+    // comparator INTRANSITIVE (a~b, b~c, yet a>c), which the spec leaves
+    // implementation-defined and which really did emit out-of-order runs — see
+    // "pills.sort() is a consistent total order" in tests/optimizer.test.mjs.
+    // Bucketing to the same 0.001 grid keeps the intent and is transitive.
+    const diff = Math.round(b.efficiency / 0.001) - Math.round(a.efficiency / 0.001);
+    if (diff !== 0) return diff;
+
     const qiDiff = b.qiMulti - a.qiMulti;
     if (qiDiff !== 0) return qiDiff;
     

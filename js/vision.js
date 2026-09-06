@@ -31,6 +31,7 @@
 // ------------------------------------------------------------
 let visionWorker = null;
 let visionWorkerReady = false;
+let visionWorkerReadyPromise = null;
 let visionBatchActive = false;
 
 const VENDOR_BASE = 'vendor/';
@@ -101,8 +102,14 @@ function bestMatchPlant(rawLines) {
 
 async function ensureVisionWorker(onProgress) {
   if (visionWorkerReady && visionWorker) return visionWorker;
-  const T = window.Tesseract;
-  if (!T) throw new Error('Tesseract.js failed to load');
+  // Single-flight: a paste arriving during idle warm-up must share the same
+  // in-flight createWorker(), not start a second one (double ~9 MB download
+  // + orphaned worker). Restores the guard that e8cc3cc added and the v3.0
+  // rewrite dropped.
+  if (visionWorkerReadyPromise) return visionWorkerReadyPromise;
+  visionWorkerReadyPromise = (async () => {
+    const T = window.Tesseract;
+    if (!T) throw new Error('Tesseract.js failed to load');
   const setStatus = (msg) => { if (onProgress) onProgress(msg); };
   setStatus('Loading OCR engine…');
   visionWorker = await T.createWorker('eng', 1, {
@@ -118,8 +125,11 @@ async function ensureVisionWorker(onProgress) {
       else if (m.status === 'recognizing text') setStatus(`Reading screenshot… ${Math.round((m.progress || 0) * 100)}%`);
     }
   });
-  visionWorkerReady = true;
-  return visionWorker;
+    visionWorkerReady = true;
+    return visionWorker;
+  })();
+  visionWorkerReadyPromise.catch(() => { visionWorkerReadyPromise = null; });
+  return visionWorkerReadyPromise;
 }
 
 // ------------------------------------------------------------
@@ -399,7 +409,14 @@ function parseQtyText(txt) {
 }
 
 async function ocrCanvas(worker, canvas, psm) {
+  // psm 6 = single uniform block (multi-line names), 7 = single line
+  // (badges). Without setParameters the worker stays at its default (3),
+  // so badge crops get page segmentation and name lines get sparse-text
+  // segmentation — both measurably worse for these tightly-cropped zones.
+  // setParameters value must be a string (tesseract.js rejects ints).
+  await worker.setParameters({ tessedit_pageseg_mode: String(psm) });
   const { data: { text } } = await worker.recognize(canvas, {}, { text: true });
+  await worker.setParameters({ tessedit_pageseg_mode: '3' });
   return text || '';
 }
 
