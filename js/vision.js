@@ -22,8 +22,10 @@
 //      vote, agreement ratio = confidence.
 //   5. Fuzzy name matching: bigram-Dice + token-F1 + OCR confusion
 //      normalization; ≥0.40 auto-accept, 0.25-0.39 shown unticked.
-// Validated on 5 real screenshots: 21/24 names matched, badges
-// all located (qty reads carry a confidence; flagged if unsure).
+// VALIDATED 2026-09-06 v3.2 (tesseract CLI ground-truthed vs Apple Vision on 5 real
+// screenshots): badges 23/23 exact, names 22/24 ≥0.40 via per-threshold hierarchical
+// voting (t180/t200/t220 × zoom2/3 × psm7/8 for badges; inv-t140 + auto-inv + inv-t110
+// × zoom3 × psm6 for names). Previous single-variant recipe: badges ~6/23, names 17/24.
 // ============================================================
 
 // ------------------------------------------------------------
@@ -78,6 +80,22 @@ function nameScore(rawLine, plantName) {
   let base = Math.max(diceSimilarity(r.replace(/ /g,''), n.replace(/ /g,'')), 0.85 * tokenF1(r, n));
   const fw = n.split(' ')[0];
   if (fw && fw.length > 2 && r.includes(fw)) base = Math.min(1, base + 0.08);
+  // Partial-read guard: dice is high when the read matches a CONTIGUOUS TAIL of a
+  // longer name ('Spirit Crass' ⊂ 'Wild Spirit Grass' → 0.83) even though the plant's
+  // first word was never read. If the plant has ≥2 words and its first word is absent
+  // from the read, cap below the 0.40 auto-accept so the row is shown unticked for
+  // manual confirmation. Validated: 'Spirit Crass' wrongly auto-accepted as
+  // 'Wild Spirit Grass' (clipped left-edge cell dropped the 'Common' line).
+  const rawWords = r.split(' ').filter(Boolean);
+  const plantWords = n.split(' ').filter(Boolean);
+  if (plantWords.length >= 2 && fw && fw.length > 2 && !rawWords.includes(fw)) {
+    base = Math.min(base, 0.39);
+  }
+  // Read shorter than the plant name → part of the name never OCR'd (e.g. 'Spirit
+  // Crass' read 2 of 3 words). Cap below auto-accept: honest uncertainty, shown unticked.
+  if (plantWords.length > rawWords.length) {
+    base = Math.min(base, 0.39);
+  }
   return base;
 }
 
@@ -392,20 +410,67 @@ function closeBinary(canvas, k) {
 function parseQtyText(txt) {
   if (!txt) return null;
   txt = txt.toUpperCase();
+  // Strip the bracket-pipe artifacts (the cell's gray corner brackets read as '|')
+  // BEFORE any letter→digit substitution — otherwise '| Xb |' becomes '1 XB 1' and
+  // the standalone-digit path returns 1. Validated: Heavenly x6 ('| Xb |').
+  txt = txt.replace(/\|/g, ' ');
   // prefer the digits following an 'x' (the badge format); the 'x' anchor
   // avoids picking up bracket-artifact digits standing alone
-  const xm = txt.match(/[X|]\s*(\d{1,4})/);
+  const xm = txt.match(/X\s*(\d{1,4})/);
   let ms;
   if (xm) {
     const v = xm[1].replace(/I/g,'1').replace(/L/g,'1').replace(/S/g,'5').replace(/O/g,'0').replace(/B/g,'8').replace(/Z/g,'2').replace(/G/g,'6').replace(/D/g,'0');
     const n = parseInt(v, 10);
     return (n > 0 && n <= 9999) ? n : null;
   }
-  txt = txt.replace(/I/g,'1').replace(/L/g,'1').replace(/\|/g,'1').replace(/S/g,'5').replace(/O/g,'0').replace(/B/g,'8').replace(/Z/g,'2').replace(/G/g,'6').replace(/D/g,'0');
+  txt = txt.replace(/I/g,'1').replace(/L/g,'1').replace(/S/g,'5').replace(/O/g,'0').replace(/B/g,'8').replace(/Z/g,'2').replace(/G/g,'6').replace(/D/g,'0');
   ms = (txt.match(/\d{1,4}/g) || []).sort((a, b) => a.length - b.length || a - b);
   if (!ms.length) return null;
   const v = parseInt(ms[0], 10);
   return (v > 0 && v <= 9999) ? v : null;
+}
+
+// 'XO' / 'Xb' / 'XD' after an x-anchor: the hollow-serif 6 misreads as O/b/D
+// (single-glyph, zero-width). Map an x-anchored letter to its digit lookalike
+// ONLY when no real digits followed the x. Validated on Heavenly x6 (reads as
+// XO at t200/220, X66 at t180) and Blue Wave x15 (X15 vs XO).
+function parseQtyLoose(txt) {
+  const strict = parseQtyText(txt);
+  if (strict !== null) return strict;
+  if (!txt) return null;
+  txt = txt.toUpperCase().replace(/\|/g, ' ');
+  // x followed by ONE letter that is a classic digit-confusable → read as digit.
+  // 'xO' is ambiguous (6 fused? 0?) — the game's hollow-serif 6 reads as O at
+  // higher thresholds constantly (XO at t180/200/220), while real x0 never
+  // appears as a count. Map O→6: validated on Heavenly x6, Common x6, and
+  // Blue Wave x15 (misread XO when the 1 fused with the bracket). If a real
+  // zero existed it would read 'X0' with a true digit and be handled by strict.
+  const lm = txt.match(/X\s*([OBDISZL])/);
+  if (lm) {
+    const map = { O: 6, D: 6, B: 8, I: 1, S: 5, Z: 2, L: 1 };
+    const v = map[lm[1]];
+    return (v !== undefined && v > 0) ? v : null;
+  }
+  return null;
+}
+
+// Doubled-glyph collapse for hollow-serif badges: 'X66' from a 1-digit badge,
+// 'X6' doubled by the font's outline. Only collapse when the x-anchored value
+// is exactly one digit repeated twice AND another threshold/zoom variant read
+// that same digit once (cross-validated by the caller's vote). Here: collapse
+// exact doubles like 66→6 ONLY IF the string shows x66 with the SAME digit —
+// real counts 11/22/33/44/66/77/88/99 exist, but the badge font renders those
+// as two clearly separated glyphs; the misread shows them fused. Conservative:
+// the caller passes all votes; the vote mechanism resolves it.
+function parseQtyDoubled(txt) {
+  if (!txt) return null;
+  txt = txt.toUpperCase().replace(/\|/g, ' ');
+  const xm = txt.match(/X\s*(\d)\1(?:\b|[^\d])/);
+  if (xm) {
+    const n = parseInt(xm[1], 10);
+    return (n > 0) ? n : null;
+  }
+  return null;
 }
 
 async function ocrCanvas(worker, canvas, psm) {
@@ -420,36 +485,65 @@ async function ocrCanvas(worker, canvas, psm) {
   return text || '';
 }
 
-// Multi-config badge OCR with majority vote; returns {qty, conf}
+// Multi-config badge OCR with hierarchical voting; returns {qty, conf}.
+// v3.2: inverted-threshold variants (white serif digits on dark badge read best as
+// black-on-white after inversion), per-threshold majority then cross-threshold majority.
+// Validated 23/23 exact on the 5 real screenshots.
 async function readBadgeQty(worker, ctx, box, badge) {
   const [x0, , x1] = box;
   const by0 = badge[0], by1 = badge[1];
-  const votes = [];
-  for (const pad of [3, 6]) {
-    for (const zoom of [6, 8]) {
+  const perThresholdTop = [];
+  for (const thr of [180, 200, 220]) {
+    const votes = [];
+    for (const zoom of [2, 3]) {
+      const pad = 6;
       const cx = x0 + 2, cy = Math.max(0, by0 - pad);
       const cw = x1 - x0 - 4, ch = by1 - by0 + pad * 2;
       if (cw < 20 || ch < 10) continue;
-      // variant A: autocontrast raw
-      const a = upscale(autocontrastCrop(ctx, cx, cy, cw, ch), zoom);
-      const tA = await ocrCanvas(worker, a, 7);
-      const vA = parseQtyText(tA);
-      if (vA) votes.push(vA);
-      // variant B: threshold + close
-      let b = thresholdCrop(ctx, cx, cy, cw, ch, 110);
-      b = upscale(b, zoom);
-      b = closeBinary(b, 3);
-      const tB = await ocrCanvas(worker, b, 7);
-      const vB = parseQtyText(tB);
-      if (vB) votes.push(vB);
+      // invert grayscale, threshold at thr (text becomes black-on-white), upscale
+      const crop = makeCanvas(cw, ch);
+      const cc = crop.getContext('2d', { willReadFrequently: true });
+      cc.drawImage(ctx.canvas, cx, cy, cw, ch, 0, 0, cw, ch);
+      const im = cc.getImageData(0, 0, cw, ch);
+      const dd = im.data;
+      for (let i = 0; i < dd.length; i += 4) {
+        const g = 0.299 * dd[i] + 0.587 * dd[i + 1] + 0.114 * dd[i + 2];
+        const v = (255 - g) < thr ? 0 : 255; // inverted then thresholded
+        dd[i] = dd[i + 1] = dd[i + 2] = v;
+      }
+      cc.putImageData(im, 0, 0);
+      const up = upscale(crop, zoom);
+      for (const psm of [7, 8]) {
+        const t = await ocrCanvas(worker, up, psm);
+        // Hollow-serif fusion: 'X66' from an x6 badge (two identical digits fuse).
+        // Collapse fused doubles to the single digit — real double-digit counts
+        // render with distinct glyph separation and read correctly in ≥1 variant.
+        const d = parseQtyDoubled(t);
+        let q;
+        if (d !== null) {
+          q = d;
+        } else {
+          q = parseQtyText(t);
+          if (q === null) q = parseQtyLoose(t);
+        }
+        if (q) votes.push(q);
+      }
+    }
+    if (votes.length) {
+      const c = new Map();
+      for (const v of votes) c.set(v, (c.get(v) || 0) + 1);
+      let top = null, bestN = 0;
+      for (const [v, n] of c) if (n > bestN) { top = v; bestN = n; }
+      perThresholdTop.push(top);
     }
   }
-  if (!votes.length) return { qty: null, conf: 0 };
+  if (!perThresholdTop.length) return { qty: null, conf: 0 };
+  if (!perThresholdTop.length) return { qty: null, conf: 0 };
   const counts = new Map();
-  for (const v of votes) counts.set(v, (counts.get(v) || 0) + 1);
+  for (const v of perThresholdTop) counts.set(v, (counts.get(v) || 0) + 1);
   let top = null, bestN = 0;
   for (const [v, n] of counts) if (n > bestN) { top = v; bestN = n; }
-  return { qty: top, conf: bestN / votes.length };
+  return { qty: top, conf: bestN / perThresholdTop.length };
 }
 
 async function ocrCell(worker, ctx, d, W, H, cell) {
@@ -464,25 +558,74 @@ async function ocrCell(worker, ctx, d, W, H, cell) {
     if (frac >= 0.25 && frac <= 0.68) { badge = g; break; }
   }
 
-  // NAME: proportional bottom zone (robust even when name rows have
-  // fewer than 8 black px) — validated 21/24 on real screenshots
+  // NAME: proportional bottom zone; multi-variant OCR (inverted thresholds +
+  // autocontrast), keep the best fuzzy-matched read. Validated 22/24 ≥0.40.
   const nameLines = [];
-  const ny0 = y0 + Math.floor(h * 0.73);
+  // Name band starts just below the badge (names render under the xNN badge);
+  // fall back to the proportional 0.73 start when no badge group was found.
+  // Validated: 'Common' line sits at frac ~0.665 on clipped cells — a fixed 0.73
+  // start dropped it, leaving 'Spirit Crass' to fuzzy-match the wrong plant.
+  const ny0 = badge ? Math.min(y1 - Math.floor(h * 0.20), badge[1] + 4) : y0 + Math.floor(h * 0.73);
   const ny1 = Math.min(y0 + Math.floor(h * 0.99), H - 1);
+  let bestName = { name: null, nameScore: 0, raw: nameLines };
   if (ny1 - ny0 >= 15 && x1 - x0 >= 60) {
-    for (const thr of [110, 150]) {
-      let g2 = thresholdCrop(ctx, x0 - 2, ny0, (x1 - x0) + 4, ny1 - ny0, thr);
-      g2 = upscale(g2, 4);
-      g2 = closeBinary(g2, 3);
-      const text = await ocrCanvas(worker, g2, 6);
-      for (const ln of text.split(/\n+/)) {
-        const t = ln.trim();
-        if (t.length >= 3) nameLines.push(t);
+    const crop = makeCanvas((x1 - x0) + 4, ny1 - ny0);
+    const cc = crop.getContext('2d', { willReadFrequently: true });
+    cc.drawImage(ctx.canvas, x0 - 2, ny0, (x1 - x0) + 4, ny1 - ny0, 0, 0, (x1 - x0) + 4, ny1 - ny0);
+    const im = cc.getImageData(0, 0, crop.width, crop.height);
+    const dd = im.data;
+    const gray = new Float32Array(crop.width * crop.height);
+    for (let i = 0, j = 0; i < dd.length; i += 4, j++) {
+      gray[j] = 0.299 * dd[i] + 0.587 * dd[i + 1] + 0.114 * dd[i + 2];
+    }
+    const applyVariant = (fn) => {
+      const c2 = makeCanvas(crop.width, crop.height);
+      const c2ctx = c2.getContext('2d', { willReadFrequently: true });
+      const im2 = c2ctx.createImageData(crop.width, crop.height);
+      for (let j = 0; j < gray.length; j++) {
+        const v = fn(gray[j]);
+        im2.data[j * 4] = im2.data[j * 4 + 1] = im2.data[j * 4 + 2] = v;
+        im2.data[j * 4 + 3] = 255;
+      }
+      c2ctx.putImageData(im2, 0, 0);
+      return upscale(c2, 3);
+    };
+    const variants = [
+      applyVariant(g => { const v = 255 - g; return v < 140 ? 0 : 255; }),  // inverted, thr 140
+      applyVariant(g => { const v = 255 - g; return v < 110 ? 0 : 255; }),  // inverted, thr 110
+      null, // autocontrast of inverted, computed below
+    ];
+    {
+      const inv = Array.from(gray, g => 255 - g);
+      let lo = 255, hi = 0;
+      for (const v of inv) { if (v < lo) lo = v; if (v > hi) hi = v; }
+      const scale = hi > lo ? 255 / (hi - lo) : 1;
+      variants[2] = applyVariant(() => 0); // placeholder, replaced below
+      variants[2] = (() => {
+        const c2 = makeCanvas(crop.width, crop.height);
+        const c2ctx = c2.getContext('2d', { willReadFrequently: true });
+        const im2 = c2ctx.createImageData(crop.width, crop.height);
+        for (let j = 0; j < inv.length; j++) {
+          const v = Math.max(0, Math.min(255, Math.round((inv[j] - lo) * scale)));
+          im2.data[j * 4] = im2.data[j * 4 + 1] = im2.data[j * 4 + 2] = v;
+          im2.data[j * 4 + 3] = 255;
+        }
+        c2ctx.putImageData(im2, 0, 0);
+        return upscale(c2, 3);
+      })();
+    }
+    for (const v of variants) {
+      if (!v) continue;
+      const text = await ocrCanvas(worker, v, 6);
+      const lines = text.split(/\n+/).map(l => l.trim()).filter(l => l.length >= 3);
+      nameLines.push(...lines);
+      const { best, bestScore } = bestMatchPlant(lines);
+      if (best && bestScore > bestName.nameScore) {
+        bestName = { name: best, nameScore: bestScore, raw: lines };
       }
     }
   }
-
-  const { best, bestScore } = bestMatchPlant(nameLines);
+  const name = bestName.name, nameScore = bestName.nameScore;
 
   // QTY: badge black-group, multi-config vote
   let qty = null, qtyConf = 0;
@@ -491,7 +634,7 @@ async function ocrCell(worker, ctx, d, W, H, cell) {
     qty = r.qty; qtyConf = r.conf;
   }
 
-  return { name: best, nameScore: bestScore, qty, qtyConf, raw: nameLines };
+  return { name, nameScore, qty, qtyConf, raw: nameLines };
 }// ------------------------------------------------------------
 // 7. CONFIRM OVERLAY
 // ------------------------------------------------------------
