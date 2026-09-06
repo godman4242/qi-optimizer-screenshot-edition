@@ -87,6 +87,21 @@ check('page exposes every global the fork needs',
   await page.evaluate(() => !!(window.Tesseract && window.Vision && window.VisionMatch
     && typeof setQty === 'function' && typeof PLANTS === 'object')));
 
+// Rarity colour: the palette existed but only recipe tags used it. These
+// assert the RENDERED colour, not the class name — a class that no rule
+// matches would otherwise pass silently.
+const gridColours = await page.evaluate(() => {
+  const pick = (r) => {
+    const el = document.querySelector(`.plant-card.rarity-${r} .plant-name`);
+    return el ? getComputedStyle(el).color : null;
+  };
+  return { C: pick('C'), U: pick('U'), R: pick('R'), E: pick('E'), L: pick('L') };
+});
+check('every rarity tints the herb name a different colour in the inventory',
+  Object.values(gridColours).every(Boolean)
+    && new Set(Object.values(gridColours)).size === 5,
+  JSON.stringify(gridColours));
+
 check('inventory grid rendered all 24 plants',
   await page.locator('.plant-card').count() === 24,
   `found ${await page.locator('.plant-card').count()}`);
@@ -130,6 +145,45 @@ const rowCount = await page.locator('.vision-row').count();
 check('review overlay listed 12 herbs from 2 screenshots', rowCount === 12, `got ${rowCount}`);
 check('every row carries a thumbnail of the cell it was read from',
   await page.locator('.vision-row .vision-thumb').count() === rowCount);
+// Rarity in the review table: colour, a colour-blind-safe letter chip, and
+// rarest-first ordering so legendaries are not buried in an alphabetical list.
+const reviewRarity = await page.evaluate(() => {
+  const rows = [...document.querySelectorAll('.vision-row')];
+  return rows.map((row) => {
+    const chip = row.querySelector('.rarity-chip');
+    const name = row.querySelector('.vision-name');
+    return {
+      chip: chip ? chip.textContent.trim() : null,
+      colour: name ? getComputedStyle(name).color : null,
+      text: name ? name.textContent.trim() : '',
+    };
+  });
+});
+check('every review row shows a rarity letter chip',
+  reviewRarity.every((r) => /^[CUREL]$/.test(r.chip || '')),
+  JSON.stringify(reviewRarity.map((r) => r.chip)));
+check('review rows are tinted by rarity, not all one colour',
+  new Set(reviewRarity.map((r) => r.colour)).size >= 3,
+  JSON.stringify([...new Set(reviewRarity.map((r) => r.colour))]));
+{
+  // Rows needing a human decision deliberately jump the queue — an uncertain
+  // row buried at the bottom of a long list is one you never look at. Rarity
+  // order therefore applies WITHIN the confident block, which is what a player
+  // is actually scanning.
+  const order = ['L', 'E', 'R', 'U', 'C'];
+  const confident = await page.evaluate(() =>
+    [...document.querySelectorAll('.vision-row:not(.vision-uncertain)')]
+      .map((row) => (row.querySelector('.rarity-chip') || {}).textContent.trim()));
+  const idx = confident.map((c) => order.indexOf(c));
+  check('within the confident rows, legendaries sort to the top and commons to the bottom',
+    idx.length >= 5 && idx.every((v, i) => i === 0 || idx[i - 1] <= v),
+    confident.join(' '));
+  check('a row needing attention still jumps ahead of the rarity order',
+    (await page.locator('.vision-row').first().evaluate((el) =>
+      el.classList.contains('vision-uncertain'))) === true,
+    'first row should be the uncertain one');
+}
+
 const tickedBefore = await page.locator('.vision-check:checked').count();
 check('at least 11 of 12 rows arrive already ticked', tickedBefore >= 11, `${tickedBefore} ticked`);
 
@@ -162,6 +216,29 @@ await page.waitForSelector('#backup-text');
 const exported = await page.locator('#backup-text').inputValue();
 check('backup exported the inventory as readable text',
   /Basic Herb: 27/.test(exported) && /Red Ginseng: 56/.test(exported), JSON.stringify(exported));
+
+// A <textarea> cannot carry colour, so rarity has to be readable as STRUCTURE
+// — and that structure must survive being pasted straight back in.
+check('backup groups the list under rarity headings, rarest first',
+  /# Uncommon/.test(exported) && /# Common/.test(exported)
+    && exported.indexOf('# Uncommon') < exported.indexOf('# Common'),
+  JSON.stringify(exported));
+
+check('the coloured rarity tally shows one chip per rarity',
+  await page.locator('.backup-tally-item').count() === 5,
+  `${await page.locator('.backup-tally-item').count()} chips`);
+
+// Round-trip: the exported text, headings and all, must re-import unchanged.
+await page.locator('#backup-text').fill(exported);
+await page.locator('#backup-load').click();
+await page.waitForTimeout(300);
+const roundTrip = await page.evaluate(() => ({
+  basic: inventoryState['Basic Herb'], ginseng: inventoryState['Red Ginseng'],
+}));
+check('an exported backup re-imports unchanged, headings and all',
+  roundTrip.basic === 27 && roundTrip.ginseng === 56, JSON.stringify(roundTrip));
+await page.locator('#btn-backup').click();
+await page.waitForSelector('#backup-text');
 
 // Round-trip through a deliberately mangled list: different order, an OCR-ish
 // typo, an equals sign, and a junk line.

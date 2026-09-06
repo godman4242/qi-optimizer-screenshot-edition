@@ -33,9 +33,17 @@ How it gets there, in short: the quantity badge is read with a **digits-only whi
 
 Everything runs on your machine. No API keys, no uploads, no account — the OCR engine ([Tesseract.js](https://github.com/naptha/tesseract.js)) is vendored into `vendor/`.
 
+### 🎨 Rarity at a glance
+
+Every herb name is tinted by its rarity — gold for Legendary, purple for Epic, blue for Rare, green for Uncommon, grey for Common — in the inventory list, the screenshot review table, and the recipe ingredients. No reading down a list one herb at a time to find your legendaries.
+
+Colour is never the only signal: the inventory is grouped under named rarity headings and the review table carries a letter chip, so nothing is lost in greyscale or to colour-blindness.
+
 ### 💾 Inventory backup
 
 One button turns your inventory into a plain text list you can paste into Discord, keep as a backup, or load on another device. Paste one back in and it restores — tolerant of typos, different order, and whatever a chat client did to the formatting.
+
+The list is **grouped by rarity, rarest first**, under `# Legendary` style headings. A `<textarea>` can't carry colour — that's a browser limitation — so rarity shows up as structure instead, which is what survives being pasted into a chat message anyway. The headings are comments and are ignored when you load a list back in.
 
 ### 🧪 Craft Copilot
 

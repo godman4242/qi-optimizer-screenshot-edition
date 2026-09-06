@@ -12,11 +12,38 @@
 // block, nothing to learn.
 // ============================================================
 
+// Grouped by rarity, strongest first, under "# Legendary" style headers.
+//
+// A <textarea> cannot carry colour — that is a browser limitation, not an
+// oversight — so the thing that actually makes rarity readable at a glance
+// here is STRUCTURE, not colour. Grouping also survives the trip this text is
+// built for: pasted into a Discord message, colour would be lost anyway but
+// the headers still tell you where your legendaries are.
+//
+// The '#' lines are comments and inventoryFromText skips them, so an exported
+// list re-imports unchanged.
 function inventoryToText() {
-  const lines = Object.keys(PLANTS)
-    .filter((name) => (inventoryState[name] || 0) > 0)
-    .map((name) => `${name}: ${inventoryState[name]}`);
-  return lines.length ? lines.join('\n') : '';
+  const out = [];
+  for (const rarity of VisionMatch.RARITY_ORDER) {
+    const names = Object.keys(PLANTS)
+      .filter((n) => PLANTS[n].rarity === rarity && (inventoryState[n] || 0) > 0)
+      .sort();
+    if (!names.length) continue;
+    if (out.length) out.push('');
+    out.push(`# ${VisionMatch.RARITY_LABEL[rarity]}`);
+    for (const n of names) out.push(`${n}: ${inventoryState[n]}`);
+  }
+  return out.join('\n');
+}
+
+// Count of held herbs per rarity, strongest first.
+function inventoryTally() {
+  return VisionMatch.RARITY_ORDER.map((rarity) => ({
+    rarity,
+    label: VisionMatch.RARITY_LABEL[rarity],
+    count: Object.keys(PLANTS)
+      .filter((n) => PLANTS[n].rarity === rarity && (inventoryState[n] || 0) > 0).length,
+  }));
 }
 
 // Tolerant parser: accepts "Name: 12", "Name 12", "Name = 12", "Name,12", any
@@ -52,6 +79,11 @@ function showBackupDialog() {
   overlay.className = 'vision-overlay';
   const text = inventoryToText();
   const total = Object.keys(PLANTS).filter((n) => (inventoryState[n] || 0) > 0).length;
+  const tallyHtml = inventoryTally().map((t) => `
+    <span class="backup-tally-item rarity-${t.rarity} ${t.count ? '' : 'is-empty'}"
+          title="${t.count} ${t.label} herb${t.count === 1 ? '' : 's'} in stock">
+      <b>${t.count}</b> ${t.label}
+    </span>`).join('');
 
   overlay.innerHTML = `
     <div class="vision-modal" role="dialog" aria-modal="true" aria-label="Backup or restore inventory">
@@ -60,9 +92,11 @@ function showBackupDialog() {
         <button class="btn vision-close" aria-label="Close">×</button>
       </div>
       <div class="backup-body">
+        <div class="backup-tally">${tallyHtml}</div>
         <p class="backup-hint">
-          Copy this somewhere safe, or paste someone else's list in and press
-          <b>Load</b>. Editing the numbers here works too.
+          Grouped by rarity, rarest first. Copy it somewhere safe, or paste
+          someone else's list in and press <b>Load</b>. Editing the numbers
+          here works too, and the <code>#</code> headings are ignored on load.
         </p>
         <textarea id="backup-text" class="backup-text" spellcheck="false"
           placeholder="Wild Bitter Grass: 51&#10;Silverleaf Herb: 29">${text.replace(/</g, '&lt;')}</textarea>

@@ -278,9 +278,17 @@
     }));
   }
 
+  // Ordered strongest-first; the single place the game's rarity codes are
+  // spelled out for humans. Used by the review overlay and the backup dialog.
+  const RARITY_ORDER = ['L', 'E', 'R', 'U', 'C'];
+  const RARITY_LABEL = {
+    L: 'Legendary', E: 'Epic', R: 'Rare', U: 'Uncommon', C: 'Common',
+  };
+
   const api = {
     normalizeName, similarity, editSim, dice, tokenSim,
     rarityFromTile, rankCandidates, assign,
+    RARITY_ORDER, RARITY_LABEL,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
@@ -1057,8 +1065,18 @@ function showVisionConfirm(inputRows, diagnostic) {
     // the work rather than opening scrolled to it. Within each group, plain
     // alphabetical order — predictable to scan, unlike confidence order.
     const needsEye = (r) => r.nameScore < VISION_CFG.autoAccept || r.qty === null || r.conflict;
+    // Rarity comes from data.js once the herb is named — the tile colour was
+    // only ever a hint for READING the name, and a washed-out tile must not
+    // mis-label a herb whose identity is already settled.
+    const rarityOf = (r) => (PLANTS[r.name] || {}).rarity || null;
+    const rank = (r) => {
+      const i = VisionMatch.RARITY_ORDER.indexOf(rarityOf(r));
+      return i < 0 ? VisionMatch.RARITY_ORDER.length : i;
+    };
     const rows = inputRows.slice().sort((a, b) =>
-      (needsEye(b) ? 1 : 0) - (needsEye(a) ? 1 : 0) || a.name.localeCompare(b.name));
+      (needsEye(b) ? 1 : 0) - (needsEye(a) ? 1 : 0)
+      || rank(a) - rank(b)
+      || a.name.localeCompare(b.name));
     const flagged = rows.filter(needsEye).length;
 
     // In Replace mode the herbs that were NOT in these screenshots keep their
@@ -1078,10 +1096,16 @@ function showVisionConfirm(inputRows, diagnostic) {
       const thumb = r.thumb
         ? `<img class="vision-thumb" src="${r.thumb}" alt="">`
         : '<span class="vision-thumb vision-thumb-empty">?</span>';
+      const rar = rarityOf(r);
+      const label = rar ? VisionMatch.RARITY_LABEL[rar] : '';
+      const chip = rar
+        ? `<span class="rarity-chip" title="${label}" aria-label="${label}">${rar}</span>`
+        : '';
       return `
-        <div class="vision-row ${auto ? '' : 'vision-uncertain'}">
+        <div class="vision-row ${auto ? '' : 'vision-uncertain'} ${rar ? `rarity-${rar}` : ''}">
           <input type="checkbox" class="vision-check" id="vchk-${i}" ${auto ? 'checked' : ''}>
           ${thumb}
+          ${chip}
           <label for="vchk-${i}" class="vision-name">${escapeHtml(r.name)}${
         auto ? '' : ' <span class="vision-guess">— best guess, confirm it</span>'}</label>
           <input type="number" class="vision-qty ${noQty || r.conflict ? 'vision-flag' : ''}" min="0"

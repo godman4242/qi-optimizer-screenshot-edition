@@ -1025,7 +1025,8 @@ body.locked {
   margin-top: 0.5rem;
 }
 /* v3.1: uncertain rows (low name score) shown unticked + dimmed */
-.vision-row.vision-uncertain .vision-name { color: var(--muted, #8a8); }
+/* Superseded by the rarity tint below — an uncertain row keeps its rarity
+   colour (dimmed) so both signals survive instead of one erasing the other. */
 /* v3.1: flagged quantities (low OCR confidence) */
 .vision-qty.vision-flag { border-color: var(--red, #e74c3c); background: rgba(231, 76, 60, 0.08); }
 
@@ -1204,3 +1205,66 @@ body.vision-dragging::after {
   opacity: 0.75;
   margin-top: 0.3rem;
 }
+
+/* ============================================================
+   RARITY COLOUR — one source of truth
+   ============================================================
+   The palette and the .rarity-C/U/R/E/L classes already existed and were
+   already on the inventory cards and recipe ingredient tags; only the tags
+   were ever tinted. Publishing the palette as a custom property lets any
+   descendant opt in with `color: var(--rarity)`, so the herb list, the
+   screenshot review table and the backup dialog all read the same way.
+
+   Colour is never the ONLY signal: the inventory is grouped under named
+   rarity headers, and the review table carries a letter chip — colour-blind
+   readers and greyscale screenshots lose nothing. */
+
+.rarity-C { --rarity: var(--rarity-C); }
+.rarity-U { --rarity: var(--rarity-U); }
+.rarity-R { --rarity: var(--rarity-R); }
+.rarity-E { --rarity: var(--rarity-E); }
+.rarity-L { --rarity: var(--rarity-L); }
+
+.plant-card .plant-name { color: var(--rarity, var(--text)); }
+.plant-card.has-stock .plant-name { font-weight: 600; }
+
+.vision-row .vision-name { color: var(--rarity, var(--text)); }
+.vision-row.vision-uncertain .vision-name { opacity: 0.75; }
+
+/* Letter chip so rarity survives without colour. */
+.rarity-chip {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 1px solid currentColor;
+  color: var(--rarity, var(--text-muted));
+  font-size: 0.6rem;
+  font-weight: 700;
+  line-height: 1;
+  opacity: 0.9;
+}
+
+/* Backup dialog: a coloured count per rarity, since a <textarea> cannot
+   carry colour at all. */
+.backup-tally {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0 0 0.6rem;
+}
+.backup-tally-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-card2);
+  font-size: 0.7rem;
+  color: var(--rarity, var(--text-muted));
+}
+.backup-tally-item b { font-size: 0.8rem; }
+.backup-tally-item.is-empty { opacity: 0.35; }
