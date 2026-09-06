@@ -1,0 +1,42 @@
+{
+  "css/style.css": {
+    "version": "4.2",
+    "sha": "f4356ce63ad4"
+  },
+  "vendor/tesseract.min.js": {
+    "version": "7",
+    "sha": "000c27d9cd0d"
+  },
+  "js/audio.js": {
+    "version": "2.3",
+    "sha": "fcb75397f9af"
+  },
+  "js/data.js": {
+    "version": "2.3",
+    "sha": "118a665b7cd3"
+  },
+  "js/alchemy.js": {
+    "version": "2.3",
+    "sha": "7d578597c512"
+  },
+  "js/optimizer.js": {
+    "version": "2.5",
+    "sha": "6b6571451a41"
+  },
+  "js/vision.js": {
+    "version": "4.2",
+    "sha": "667a4a03eef0"
+  },
+  "js/copilot.js": {
+    "version": "2.4",
+    "sha": "994347fc487c"
+  },
+  "js/backup.js": {
+    "version": "1.1",
+    "sha": "1505f092b6cf"
+  },
+  "js/ui.js": {
+    "version": "2.3",
+    "sha": "cfea68e48932"
+  }
+}

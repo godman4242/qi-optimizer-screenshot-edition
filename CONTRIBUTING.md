@@ -47,6 +47,15 @@ Four gates:
 | `tests/ocr-bench.mjs` | Playwright | **OCR accuracy and speed on real screenshots** |
 | `tests/ui-smoke.mjs` | Playwright | the page actually wires together, end to end |
 
+`tests/asset-versions.test.mjs` (in the unit-test run) fails if a `.js` or
+`.css` file changed but its `?v=` in `index.html` did not — a returning visitor
+would otherwise keep the old copy. When it fails it prints the edit to make;
+after making it, record the new hashes with:
+
+```bash
+UPDATE_ASSET_VERSIONS=1 node --test tests/asset-versions.test.mjs
+```
+
 Plus, after deploying:
 
 ```bash

@@ -365,7 +365,7 @@ let lastVisionApply = null;   // inventory snapshot for Undo
 // Bumped whenever the pipeline changes. Rendered into the footer so the
 // question "am I actually running the new version?" can be answered by
 // looking at the page instead of guessing at a browser cache.
-const VISION_VERSION = '4.1';
+const VISION_VERSION = '4.2';
 
 const VENDOR_BASE = 'vendor/';
 const VISION_STATUS_ID = 'vision-status';
