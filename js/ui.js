@@ -103,10 +103,12 @@ async function runOptimizer() {
   try {
     const minDuration = parseInt(document.getElementById('filter-duration').value) || 0;
     const qiInput = document.getElementById('filter-qi').value;
-    const minQi = qiInput === "" ? 100 : parseInt(qiInput);
+    const qiParsed = parseInt(qiInput);
+    const minQi = qiInput === "" ? 100 : (Number.isFinite(qiParsed) ? qiParsed : 100);
     
     const maxPillsInput = document.getElementById('filter-max-pills').value;
-    const maxPills = maxPillsInput === "" ? Infinity : parseInt(maxPillsInput);
+    const maxPillsParsed = parseInt(maxPillsInput);
+    const maxPills = maxPillsInput === "" ? Infinity : (Number.isFinite(maxPillsParsed) ? maxPillsParsed : Infinity);
     const maxSize = 3;
 
     const inv = {};
@@ -342,7 +344,8 @@ function togglePillDone(checkbox, pillId) {
   if (!pill) return;
 
   const isChecked = checkbox.checked;
-  
+  if (isChecked && pill.isDone) return;   // already ticked — no double-decrement
+
   // AUDIO INTEGRATION
   if (window.AudioController) {
     if (isChecked) window.AudioController.playDone();
@@ -352,9 +355,23 @@ function togglePillDone(checkbox, pillId) {
   pill.isDone = isChecked;
   checkbox.closest('.pill-card').classList.toggle('crafted', isChecked);
 
-  for (const [name, qty] of Object.entries(pill.ingredients)) {
-    const current = inventoryState[name] || 0;
-    setQty(name, isChecked ? Math.max(0, current - qty) : current + qty);
+  // Deduct exactly what the inventory actually had when the pill was ticked,
+  // and refund exactly that on untick. Refunding the full recipe cost could
+  // mint herbs out of nothing (stock 3, recipe 6: tick -> 0, untick -> 6).
+  if (isChecked) {
+    pill._deducted = {};
+    for (const [name, qty] of Object.entries(pill.ingredients)) {
+      const had = inventoryState[name] || 0;
+      const took = Math.min(had, qty);
+      pill._deducted[name] = took;
+      setQty(name, had - took);
+    }
+  } else {
+    const refunded = pill._deducted || pill.ingredients;   // older saved sets have no snapshot
+    for (const [name, took] of Object.entries(refunded)) {
+      setQty(name, (inventoryState[name] || 0) + took);
+    }
+    delete pill._deducted;
   }
   saveResultsState();
 
@@ -384,7 +401,18 @@ function saveInventory() {
 
 function loadAllState() {
   try {
-    inventoryState = JSON.parse(localStorage.getItem('alchemyInventory')) || {};
+    // Validate like the backup parser does: known plants, integer counts in
+    // range. Hand-edited or future-written keys must not poison display state.
+    const rawInv = JSON.parse(localStorage.getItem('alchemyInventory')) || {};
+    const cleanInv = {};
+    if (rawInv && typeof rawInv === 'object' && !Array.isArray(rawInv)) {
+      for (const [name, qty] of Object.entries(rawInv)) {
+        if (!(name in PLANTS)) continue;                      // unknown plant: drop
+        if (!Number.isInteger(qty) || qty < 0 || qty > 9999) continue;  // bad count: drop
+        cleanInv[name] = qty;
+      }
+    }
+    inventoryState = cleanInv;
     const savedUi = JSON.parse(localStorage.getItem('alchemySettings'));
     if (savedUi) {
       uiSettings = { ...uiSettings, ...savedUi };

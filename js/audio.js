@@ -141,6 +141,10 @@ window.AudioController = {
   
   playBin: () => playInterruptible('bin'),
   
+  // Same 'done' clip, but NOT a craft: OCR autofill and similar non-craft
+  // confirmations must not push the lifetime craft counter toward milestones.
+  playApplied: () => playInterruptible('done'),
+
   playDone: () => {
     playInterruptible('done');
     craftedCount++;

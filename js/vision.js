@@ -1246,6 +1246,15 @@ function showVisionUndo(count) {
 
 async function runVisionImport(files) {
   if (visionBatchActive) return;
+  // A confirm overlay already waits on the user: a second import (paste/drop
+  // while reviewing) must not stack a second overlay — both keydown handlers
+  // would fire, double-applying Add mode or silently discarding the first
+  // review on Esc. Tell the user instead of swallowing the paste.
+  if (document.querySelector('.vision-overlay')) {
+    const busy = document.getElementById(VISION_STATUS_ID);
+    if (busy) busy.textContent = 'Finish the current review first — that screenshot was not read.';
+    return;
+  }
   visionBatchActive = true;
 
   const statusEl = document.getElementById(VISION_STATUS_ID);
@@ -1277,7 +1286,7 @@ async function runVisionImport(files) {
       }
       lastVisionApply = before;
       const count = Object.keys(result.quantities).length;
-      if (window.AudioController) window.AudioController.playDone();
+      if (window.AudioController) window.AudioController.playApplied();
       setStatus(`Applied ${count} herb type(s).`);
       showVisionUndo(count);
     }

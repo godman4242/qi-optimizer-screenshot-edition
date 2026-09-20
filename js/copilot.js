@@ -79,6 +79,9 @@ function renderCraftCopilot() {
     `;
 
     panel.querySelector('#copilot-crafted').onclick = () => {
+      if (next.isDone) return;   // already crafted — no double-decrement
+      const cov = copilotCoverage(next);
+      if (!cov.ok) { renderCraftCopilot(); return; }   // short stock: nothing to craft, nothing to refund
       next.isDone = true;
       if (window.AudioController) window.AudioController.playDone();
       for (const [name, qty] of Object.entries(next.ingredients)) {
