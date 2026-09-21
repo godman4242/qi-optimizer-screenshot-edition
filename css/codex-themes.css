@@ -1,0 +1,592 @@
+/* ============================================================
+   CODEX-THEMES.CSS — Theme system + Codex/Herbs/Planner/Forum UI
+   Loaded after style.css. Default (no body class) = original
+   xianxia theme. body.theme-codex = the CI Pill Codex parchment
+   look; body.theme-jade / .theme-ember / .theme-ink = extra
+   wrappers. All themes restyle EVERYTHING (optimizer included).
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   0. THEME VARIABLE OVERRIDES
+   style.css draws almost entirely from var(), so swapping the
+   palette re-skins the whole app. Structural overrides follow.
+   ------------------------------------------------------------ */
+
+/* --- Pill Codex (parchment & gold, serif) --- */
+body.theme-codex {
+  --bg-deep: #0b0a08;
+  --bg-card: #15120c;
+  --bg-card2: #1b1710;
+  --border: #2c2517;
+  --border-glow: #7a6330;
+  --gold: #d4a94e;
+  --gold-light: #e8c987;
+  --jade: #3fae8c;
+  --qi: #d4a94e;
+  --qi-light: #e8c987;
+  --text: #ebe3d2;
+  --text-muted: #968b78;
+  --rarity-C: #8f8f8f;
+  --rarity-U: #4fae63;
+  --rarity-R: #4f90d6;
+  --rarity-E: #a970d8;
+  --rarity-L: #d4a94e;
+  --bubble-rgb: 212 169 78;
+  --font-display: Georgia, "Songti SC", "Times New Roman", serif;
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* --- Jade Sanctum (cool temple jade, clean sans) --- */
+body.theme-jade {
+  --bg-deep: #071210;
+  --bg-card: #0d1b17;
+  --bg-card2: #11231d;
+  --border: #1f4438;
+  --border-glow: #2f6d58;
+  --gold: #57c9a2;
+  --gold-light: #8fe6c8;
+  --jade: #4ecdc4;
+  --qi: #4ecdc4;
+  --qi-light: #a5f0e6;
+  --text: #dcefe9;
+  --text-muted: #6f948a;
+  --rarity-L: #8fe6c8;
+  --bubble-rgb: 78 205 196;
+  --font-display: Georgia, "Songti SC", serif;
+}
+
+/* --- Ember Forge (dark forge red/orange) --- */
+body.theme-ember {
+  --bg-deep: #120a08;
+  --bg-card: #1d120e;
+  --bg-card2: #241711;
+  --border: #3f2419;
+  --border-glow: #7a4326;
+  --gold: #e08a4a;
+  --gold-light: #f4b87a;
+  --jade: #d4a94e;
+  --qi: #e06a4a;
+  --qi-light: #f4a08a;
+  --text: #f0e2d8;
+  --text-muted: #9a7f70;
+  --rarity-L: #f4b87a;
+  --bubble-rgb: 224 138 74;
+}
+
+/* --- Ashen Void (minimal high-contrast mono) --- */
+body.theme-ink {
+  --bg-deep: #0d0d0f;
+  --bg-card: #141417;
+  --bg-card2: #1a1a1f;
+  --border: #2a2a31;
+  --border-glow: #555564;
+  --gold: #c9c9d4;
+  --gold-light: #eeeef4;
+  --jade: #8a8a99;
+  --qi: #c9c9d4;
+  --qi-light: #eeeef4;
+  --text: #e4e4ea;
+  --text-muted: #82828e;
+  --rarity-C: #7c7c88;
+  --rarity-U: #9ab8a0;
+  --rarity-R: #8fa8cc;
+  --rarity-E: #ab93cc;
+  --rarity-L: #d8d8e2;
+  --bubble-rgb: 160 160 180;
+}
+
+/* --- shared font plumbing (codex + jade get display serif) --- */
+body.theme-codex, body.theme-jade {
+  font-family: var(--font-display, Georgia, serif);
+  font-size: 15px;
+}
+body.theme-codex .logo,
+body.theme-jade .logo,
+body.theme-codex .section-title,
+body.theme-jade .section-title,
+body.theme-codex .pill-name,
+body.theme-jade .pill-name,
+body.theme-codex .filter-label,
+body.theme-jade .filter-label {
+  font-family: var(--font-display, Georgia, serif);
+  font-weight: 400;
+}
+body.theme-codex .logo {
+  background: linear-gradient(180deg, var(--gold-light), var(--gold) 55%, #7a6330);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+body.theme-codex, body.theme-ember, body.theme-ink {
+  background:
+    radial-gradient(1100px 620px at 78% -8%, rgba(212,169,78,.09), transparent 62%),
+    radial-gradient(900px 560px at 4% 104%, rgba(63,174,140,.07), transparent 60%),
+    var(--bg-deep) !important;
+  background-attachment: fixed !important;
+}
+body.theme-ember {
+  background:
+    radial-gradient(1100px 620px at 80% -10%, rgba(224,106,74,.10), transparent 62%),
+    radial-gradient(900px 560px at 0% 105%, rgba(224,138,74,.07), transparent 60%),
+    var(--bg-deep) !important;
+  background-attachment: fixed !important;
+}
+body.theme-ink {
+  background:
+    radial-gradient(1000px 600px at 50% -10%, rgba(200,200,220,.05), transparent 60%),
+    var(--bg-deep) !important;
+  background-attachment: fixed !important;
+}
+
+/* --- header treatment per theme --- */
+body.theme-codex header,
+body.theme-jade header {
+  background: linear-gradient(180deg, rgba(0,0,0,.35) 0%, transparent 100%);
+}
+body.theme-codex .subtitle,
+body.theme-jade .subtitle { letter-spacing: .14em; }
+
+/* --- cards: codex parchment gradient + top hairline glow --- */
+body.theme-codex .pill-card,
+body.theme-codex .plant-card,
+body.theme-codex .summary-box,
+body.theme-codex .filter-row,
+body.theme-jade .pill-card,
+body.theme-jade .plant-card,
+body.theme-jade .summary-box {
+  background: linear-gradient(180deg, var(--bg-card2), var(--bg-card));
+  position: relative;
+  overflow: hidden;
+}
+body.theme-codex .pill-card::before,
+body.theme-jade .pill-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(212,169,78,.35), transparent);
+}
+body.theme-codex .pill-name { color: var(--gold-light); }
+body.theme-codex .pill-type-badge,
+body.theme-codex .pill-qi { border-radius: 999px; }
+body.theme-codex .rarity-header,
+body.theme-jade .rarity-header { border-radius: 8px 8px 0 0; }
+
+/* --- buttons: gold-outline codex style --- */
+body.theme-codex .btn,
+body.theme-jade .btn {
+  border-radius: 8px;
+  border-width: 1px;
+}
+body.theme-codex .btn-primary {
+  background: rgba(212,169,78,.12);
+  border: 1px solid #7a6330;
+  color: var(--gold-light);
+}
+body.theme-codex .btn-primary:hover:not(:disabled) {
+  background: rgba(212,169,78,.2);
+  border-color: var(--gold);
+}
+body.theme-ember .btn-primary {
+  background: rgba(224,138,74,.14);
+  border-color: #7a4326;
+  color: var(--gold-light);
+}
+
+/* --- splash re-skin --- */
+body.theme-codex .splash-title,
+body.theme-jade .splash-title { font-family: var(--font-display, Georgia, serif); font-weight: 400; }
+
+/* ------------------------------------------------------------
+   1. TOP NAV TABS (shared by all themes)
+   ------------------------------------------------------------ */
+.topnav {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 10px 1rem;
+  margin: 0 -1rem 1.2rem;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(10,12,20,.97), rgba(10,12,20,.9));
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  scrollbar-width: none;
+}
+.topnav::-webkit-scrollbar { display: none; }
+body.theme-codex .topnav { background: linear-gradient(180deg, rgba(11,10,8,.97), rgba(11,10,8,.9)); }
+.topnav .navtab {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: var(--text-muted);
+  font-size: 14px;
+  padding: 8px 15px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color .15s, background .15s, border-color .15s;
+}
+.topnav .navtab:hover { color: var(--text); background: var(--bg-card); }
+.topnav .navtab[aria-selected="true"] {
+  color: var(--gold-light);
+  border-color: var(--border-glow);
+  background: rgba(212,169,78,.09);
+}
+body.theme-codex .topnav .navtab { font-family: Georgia, "Songti SC", serif; font-size: 15px; }
+[hidden] { display: none !important; }
+
+/* --- theme picker (in header) --- */
+.theme-row {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  padding: 0 1rem 10px;
+}
+.theme-row label {
+  font-size: 11px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.theme-picker {
+  color-scheme: dark;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 5px 9px;
+  font-size: 12.5px;
+  cursor: pointer;
+  outline: none;
+}
+
+/* ------------------------------------------------------------
+   2. CODEX TAB — pill reference cards (new-player friendly)
+   ------------------------------------------------------------ */
+.cx-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+  margin-bottom: 12px;
+}
+.cx-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.cx-field.grow { flex: 1 1 220px; }
+.cx-field label {
+  font-size: 11px;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.cx-field input, .cx-field select {
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 11px;
+  width: 100%;
+  min-width: 0;
+  outline: none;
+}
+.cx-field input:focus, .cx-field select:focus { border-color: var(--border-glow); }
+.cx-btn {
+  font-size: 13.5px;
+  color: var(--text-muted);
+  cursor: pointer;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 13px;
+}
+.cx-btn:hover { color: var(--text); border-color: var(--border-glow); }
+.cx-meta { color: var(--text-muted); font-size: 12.5px; margin: 0 0 14px; }
+.cx-meta b { color: var(--jade); font-weight: 600; }
+
+.cx-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 13px;
+}
+.cx-card {
+  background: linear-gradient(180deg, var(--bg-card2), var(--bg-card));
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 13px 14px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  position: relative;
+  overflow: hidden;
+}
+.cx-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(212,169,78,.35), transparent);
+}
+.cx-card.done { opacity: .52; }
+.cx-card.done h3 { text-decoration: line-through; text-decoration-color: var(--gold); }
+.cx-head { display: flex; gap: 8px; align-items: flex-start; justify-content: space-between; }
+.cx-pill-icon {
+  font-size: 24px;
+  line-height: 1;
+  flex: 0 0 auto;
+  filter: drop-shadow(0 0 6px rgba(212,169,78,.35));
+}
+.cx-titles { min-width: 0; flex: 1; }
+.cx-card h3 {
+  font-size: 16px;
+  margin: 0;
+  line-height: 1.25;
+  color: var(--gold-light);
+  font-weight: 600;
+}
+body.theme-codex .cx-card h3 { font-family: Georgia, "Songti SC", serif; font-weight: 400; }
+.cx-badge {
+  font-size: 10px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 3px 8px;
+  white-space: nowrap;
+  border: 1px solid currentColor;
+  flex: 0 0 auto;
+}
+.cx-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.cx-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 12px;
+  line-height: 1.35;
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--rc, var(--border));
+  border-radius: 6px;
+  padding: 3px 7px;
+}
+.cx-chip .qty { color: var(--gold-light); font-variant-numeric: tabular-nums; font-weight: 600; }
+.cx-chip .ico { font-size: 12px; }
+.cx-chip .fam { font-size: 9px; letter-spacing: .07em; color: var(--text-muted); text-transform: uppercase; }
+.cx-effects {
+  list-style: none;
+  margin: 0;
+  padding: 6px 0 0;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.cx-effects li { font-size: 13px; font-variant-numeric: tabular-nums; }
+.cx-effects .st { color: var(--text-muted); }
+.cx-effects .pc { font-weight: 700; }
+.cx-effects .du { color: var(--text-muted); }
+.cx-plain { font-size: 12.5px; color: var(--text-muted); font-style: italic; }
+.cx-done-row {
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cx-done-row label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+.cx-done-row input { accent-color: var(--jade); width: 15px; height: 15px; cursor: pointer; }
+.cx-empty { color: var(--text-muted); text-align: center; padding: 46px 16px; font-size: 15px; }
+.cx-afford { font-size: 11.5px; font-weight: 600; }
+.cx-afford.ok { color: var(--green); }
+.cx-afford.no { color: var(--red); }
+
+/* effect stat colors (match optimizer effect-tag palette) */
+.pc-QiMulti { color: var(--qi-light); }
+.pc-Vitality { color: #f08080; }
+.pc-Speed { color: #80e09a; }
+.pc-Strength { color: var(--gold-light); }
+.pc-Lifespan { color: var(--jade); }
+.pc-DEATH { color: var(--red); }
+.b-QiMulti { color: var(--qi-light); }
+.b-Vitality { color: #f08080; }
+.b-Speed { color: #80e09a; }
+.b-Strength { color: var(--gold-light); }
+.b-Lifespan { color: var(--jade); }
+.b-DEATH { color: var(--red); }
+
+/* ------------------------------------------------------------
+   3. HERB CODEX TAB
+   ------------------------------------------------------------ */
+.hb-block { margin-bottom: 22px; }
+.hb-block h3 {
+  font-size: 17px;
+  margin: 0 0 9px;
+  color: var(--gold-light);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+}
+body.theme-codex .hb-block h3 { font-family: Georgia, "Songti SC", serif; font-weight: 400; }
+.hb-block h3::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--border), transparent);
+}
+.hb-block h3 small { font-size: 11px; color: var(--text-muted); letter-spacing: .06em; }
+.hb-tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.hb-tbl th {
+  text-align: left;
+  font-size: 10.5px;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 600;
+  padding: 5px 9px;
+  border-bottom: 1px solid var(--border);
+}
+.hb-tbl td { padding: 7px 9px; border-bottom: 1px solid rgba(42,48,96,.35); border-bottom-color: color-mix(in srgb, var(--border) 55%, transparent); }
+.hb-tbl tr:last-child td { border-bottom: 0; }
+.hb-tbl .num { text-align: right; font-variant-numeric: tabular-nums; color: var(--gold-light); }
+.hb-tbl .usedin { color: var(--text-muted); font-size: 12px; }
+.hb-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  margin-right: 7px;
+  vertical-align: middle;
+}
+.r-C { color: var(--rarity-C); } .r-U { color: var(--rarity-U); } .r-R { color: var(--rarity-R); }
+.r-E { color: var(--rarity-E); } .r-L { color: var(--rarity-L); }
+
+/* ------------------------------------------------------------
+   4. PILL PLANNER TAB
+   ------------------------------------------------------------ */
+.planner-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--gold);
+  border-radius: 10px;
+}
+.planner-add .cx-field { flex: 1 1 200px; }
+.planner-add .cx-field.narrow { flex: 0 1 110px; }
+.pl-list { display: flex; flex-direction: column; gap: 10px; }
+.pl-item {
+  display: grid;
+  grid-template-columns: 34px 1fr auto;
+  gap: 11px;
+  align-items: start;
+  background: linear-gradient(180deg, var(--bg-card2), var(--bg-card));
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 11px 13px;
+}
+.pl-item .ico { font-size: 22px; text-align: center; }
+.pl-item .name { font-weight: 600; color: var(--gold-light); }
+.pl-item .sub { font-size: 12.5px; color: var(--text-muted); margin-top: 3px; }
+.pl-item .need { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.pl-item .actions { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+.pl-craft-note {
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+.pl-craft-note.ok { border: 1px solid var(--green); background: rgba(94,207,122,.07); color: var(--green); }
+.pl-craft-note.no { border: 1px solid var(--red); background: rgba(224,85,85,.07); color: #f0a0a0; }
+.pl-reserved-note {
+  padding: 10px 14px;
+  border: 1px dashed var(--gold);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--gold-light);
+  margin-bottom: 14px;
+  background: rgba(212,169,78,.05);
+}
+
+/* ------------------------------------------------------------
+   5. FORUM INTEL (sanitized — no usernames)
+   ------------------------------------------------------------ */
+.scrolls { display: flex; flex-direction: column; gap: 15px; max-width: 780px; }
+.scroll {
+  background: linear-gradient(180deg, var(--bg-card2), var(--bg-card));
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 18px;
+  position: relative;
+}
+.scroll::before, .scroll::after {
+  content: "";
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--gold), transparent);
+  opacity: .5;
+}
+.scroll::before { top: 6px; } .scroll::after { bottom: 6px; }
+.scroll h3 { font-size: 18px; margin: 6px 0 10px; color: var(--gold-light); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.scroll p { margin: 0 0 9px; }
+.scroll ol, .scroll ul { margin: 0 0 10px; padding-left: 20px; }
+.scroll li { margin-bottom: 5px; }
+.gap-badge {
+  font-size: 10px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--red);
+  border: 1px solid var(--red);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.ok-badge {
+  font-size: 10px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--jade);
+  border: 1px solid var(--jade);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.scroll .src { font-size: 11.5px; color: var(--text-muted); font-style: italic; }
+.scroll .note {
+  border-left: 3px solid var(--jade);
+  background: rgba(78,205,196,.06);
+  padding: 8px 11px;
+  border-radius: 0 6px 6px 0;
+  font-size: 13.5px;
+}
+.scroll .warn {
+  border-left: 3px solid var(--red);
+  background: rgba(224,85,85,.06);
+  padding: 8px 11px;
+  border-radius: 0 6px 6px 0;
+  font-size: 13.5px;
+}
+
+/* ------------------------------------------------------------
+   6. RESPONSIVE
+   ------------------------------------------------------------ */
+@media (max-width: 480px) {
+  .cx-grid { grid-template-columns: 1fr; gap: 11px; }
+  .pl-item { grid-template-columns: 28px 1fr; }
+  .pl-item .actions { grid-column: 1 / -1; flex-direction: row; }
+}

@@ -3,13 +3,17 @@
     "version": "4.2",
     "sha": "f4356ce63ad4"
   },
+  "css/codex-themes.css": {
+    "version": "1.0",
+    "sha": "8d933c56000d"
+  },
   "vendor/tesseract.min.js": {
     "version": "7",
     "sha": "000c27d9cd0d"
   },
   "js/audio.js": {
-    "version": "2.3",
-    "sha": "fcb75397f9af"
+    "version": "2.4",
+    "sha": "ff05ae5c97e0"
   },
   "js/data.js": {
     "version": "2.3",
@@ -24,19 +28,27 @@
     "sha": "6b6571451a41"
   },
   "js/vision.js": {
-    "version": "4.2",
-    "sha": "667a4a03eef0"
+    "version": "4.3",
+    "sha": "5c1f417ce65a"
   },
   "js/copilot.js": {
-    "version": "2.4",
-    "sha": "994347fc487c"
+    "version": "2.5",
+    "sha": "9e5b6beaa5b8"
   },
   "js/backup.js": {
     "version": "1.1",
     "sha": "1505f092b6cf"
   },
+  "js/codex-ui.js": {
+    "version": "1.0",
+    "sha": "f8585c626856"
+  },
+  "js/planner.js": {
+    "version": "1.0",
+    "sha": "2ea2f39832af"
+  },
   "js/ui.js": {
-    "version": "2.3",
-    "sha": "cfea68e48932"
+    "version": "2.5",
+    "sha": "6599d9426f8e"
   }
 }

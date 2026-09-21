@@ -1,6 +1,7 @@
 // ============================================================
 // Test harness — loads the real game files (data.js, alchemy.js,
-// optimizer.js) in a sandboxed Node vm and runs assertions.
+// optimizer.js, planner.js, codex-ui.js) in a sandboxed Node vm and
+// runs assertions.
 // Run: node tests/run-tests.js
 // ============================================================
 'use strict';
@@ -19,6 +20,19 @@ const sandbox = {
   clearTimeout,
 };
 sandbox.window = sandbox;
+// Minimal DOM/localStorage stubs so codex-ui.js and planner.js load headlessly.
+// getElementById returns null → every render function early-returns; only the
+// pure logic (reservation math, crafted tracking) is exercised here.
+sandbox.localStorage = {
+  _s: {},
+  getItem(k) { return Object.prototype.hasOwnProperty.call(this._s, k) ? this._s[k] : null; },
+  setItem(k, v) { this._s[k] = String(v); },
+};
+sandbox.document = {
+  getElementById: () => null,
+  querySelectorAll: () => [],
+  addEventListener: () => {},
+};
 vm.createContext(sandbox);
 
 function load(file) {
@@ -27,6 +41,15 @@ function load(file) {
 load('data.js');
 load('alchemy.js');
 load('optimizer.js');
+load('planner.js');
+load('codex-ui.js');
+// ui.js needs a real DOM, so it is not loaded; a setQty stand-in lets the
+// codex crafted-checkbox path run with the same "store the value" semantics.
+vm.runInContext(`
+  var setQty = function (name, val) {
+    inventoryState[name] = Math.max(0, parseInt(val, 10) || 0);
+  };
+`, sandbox, { filename: 'setQty-stub' });
 
 function run(code) {
   return vm.runInContext(code, sandbox);
@@ -340,6 +363,133 @@ async function section(title, tests) {
       console.log(`      → total QiMulti of set: ${totalQi}`);
       assert(totalQi >= 400, `total Qi suspiciously low: ${totalQi}`);
     }],
+  ]);
+
+  await section('Planner — one pool, live reservation', [
+    ['empty plan → optimizer sees the full stash', () => {
+      run(`
+        inventoryState = ${S({ 'Spirit Spring Herb': 40, 'Silverleaf Herb': 10, 'Cloud Mist Herb': 40, 'Wild Spirit Grass': 20, 'Ironbone Grass': 4, 'Crimson Flame Mushroom': 4 })};
+        plannerPlan = [];
+      `);
+      const inv = run('getOptimizerInventory()');
+      assertEq(inv['Silverleaf Herb'], 10, 'silverleaf should pass through untouched');
+      // with the full stash, 10 Mistveil Focus Pills are craftable (Silverleaf is the bottleneck: 10/1)
+      assertEq(Math.floor(inv['Silverleaf Herb'] / 1), 10, 'craftable Mistveil before planning');
+    }],
+    ['planned pills reserve herbs out of the SAME pool (Mistveil 10 → 6)', () => {
+      // Fury Pill (Strength) needs 2× Silverleaf — the same herb Mistveil Focus needs 1 of.
+      // Planning 2 Fury Pills reserves 4 Silverleaf: 10 − 4 = 6 left → only 6 Mistveil.
+      run(`plannerAddRow('Fury Pill', 2)`);
+      const inv = run('getOptimizerInventory()');
+      assertEq(inv['Silverleaf Herb'], 6, 'silverleaf after reserving 2 Fury Pills');
+      assert(!('Ironbone Grass' in inv), 'fully-reserved herbs must drop out of the optimizer pool');
+      assertEq(inv['Spirit Spring Herb'], 40, 'unrelated herbs stay untouched');
+      assertEq(Math.floor(inv['Silverleaf Herb'] / 1), 6, 'craftable Mistveil after planning');
+    }],
+    ['reservation is live: raising the plan count drops the pool further', () => {
+      run(`plannerSetCount('Fury Pill', 5)`);
+      const inv = run('getOptimizerInventory()');
+      assert(!('Silverleaf Herb' in inv), '5 Fury Pills need all 10 Silverleaf — drained herbs must drop out of the pool');
+      assert(!('Crimson Flame Mushroom' in inv), '5 Fury Pills also drain the 4 Crimson Flame Mushroom');
+      assertEq(inv['Spirit Spring Herb'], 40, 'herbs no planned pill uses stay available');
+    }],
+    ['removing the plan restores the full pool', () => {
+      run(`plannerRemove('Fury Pill')`);
+      const inv = run('getOptimizerInventory()');
+      assertEq(inv['Silverleaf Herb'], 10, 'pool restored after plan removal');
+    }],
+    ['shortages are reported against the raw stash', () => {
+      run(`plannerAddRow('Fury Pill', 100)`);
+      const shortages = run('plannerShortages()');
+      assert(shortages.length > 0, 'a 100-pill plan must report shortages');
+      const silver = shortages.find(s => s.plant === 'Silverleaf Herb');
+      assert(silver, 'Silverleaf shortage missing');
+      assertEq(silver.need, 200, 'need = 2 × 100');
+      assertEq(silver.have, 10, 'have = raw stash, not the reduced pool');
+      run(`plannerRemove('Fury Pill')`);
+    }],
+    ['plan persists through the localStorage stub', () => {
+      run(`plannerAddRow('Fury Pill', 1)`);
+      const saved = JSON.parse(sandbox.localStorage.getItem('codexPlanner.v1'));
+      assertEq(saved.length, 1, 'one planned pill saved');
+      assertEq(saved[0].name, 'Fury Pill', 'saved pill name');
+      assertEq(saved[0].count, 1, 'saved pill count');
+      run(`plannerRemove('Fury Pill')`);
+    }],
+  ]);
+
+  await section('Codex — crafted tracking & helpers', [
+    ['crafted checkbox deducts recipe herbs exactly once', () => {
+      run(`inventoryState = ${S({ 'Basic Herb': 10 })}`);
+      run(`markCodexCrafted('Focus Pill', true)`); // Focus Pill = 6× Basic Herb
+      assertEq(run(`inventoryState['Basic Herb']`), 4, 'one tick → exactly one deduction');
+      const tracker = JSON.parse(sandbox.localStorage.getItem('codexCrafted.v1'));
+      assertEq(tracker.length, 1, 'crafted set persisted');
+      assertEq(tracker[0], 'Focus Pill', 'crafted set holds the pill name');
+    }],
+    ['unticking gives the herbs back (round-trip)', () => {
+      run(`markCodexCrafted('Focus Pill', false)`);
+      assertEq(run(`inventoryState['Basic Herb']`), 10, 'herbs restored on untick');
+      assertEq(JSON.parse(sandbox.localStorage.getItem('codexCrafted.v1')).length, 0, 'tracker emptied');
+    }],
+    ['affordability + craftable count read the live stash', () => {
+      run(`inventoryState = ${S({ 'Basic Herb': 5 })}`);
+      const r = run(`RECIPES.find(r => r.name === 'Focus Pill')`);
+      assertEq(run(`codexAffordable(${S(r)})`), false, '5 Basic Herb cannot afford 6');
+      assertEq(run(`codexCraftableCount(${S(r)})`), 0, 'floor(5/6) = 0 craftable');
+      run(`inventoryState['Basic Herb'] = 13`);
+      assertEq(run(`codexAffordable(${S(r)})`), true, '13 affords 6');
+      assertEq(run(`codexCraftableCount(${S(r)})`), 2, 'floor(13/6) = 2 craftable');
+    }],
+    ['pillIcon is deterministic; Death Pill always gets the skull', () => {
+      assertEq(run(`pillIcon('Death Pill')`), '☠️');
+      const a = run(`pillIcon('Mistveil Focus Pill')`);
+      const b = run(`pillIcon('Mistveil Focus Pill')`);
+      assertEq(a, b, 'same pill → same icon');
+      const all = run(`RECIPES.map(r => pillIcon(r.name))`);
+      assertEq(new Set(all).size > 1, true, 'icons should vary across pills');
+    }],
+    ['escHtml neutralizes markup', () => {
+      assertEq(run(`escHtml('<b>"x"&amp;\\'')`), '&lt;b&gt;&quot;x&quot;&amp;amp;&#39;');
+    }],
+  ]);
+
+  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const uiSrc = fs.readFileSync(path.join(JS, 'ui.js'), 'utf8');
+  const themesSrc = fs.readFileSync(path.join(JS, '..', 'css', 'codex-themes.css'), 'utf8');
+  await section('Tabs, themes & forum privacy (shipped files)', [
+      ['index.html loads codex-themes.css, codex-ui.js and planner.js', () => {
+        assert(html.includes('css/codex-themes.css'), 'codex-themes.css link missing');
+        assert(html.includes('js/codex-ui.js'), 'codex-ui.js script missing');
+        assert(html.includes('js/planner.js'), 'planner.js script missing');
+      }],
+      ['exactly one tesseract script tag (no duplicate loads)', () => {
+        assertEq((html.match(/vendor\/tesseract\.min\.js/g) || []).length, 1, 'tesseract tag count');
+      }],
+      ['five tabs in the nav, five panels in the body', () => {
+        for (const t of ['optimizer', 'planner', 'codex', 'herbs', 'forum']) {
+          assert(html.includes(`data-tab="${t}"`), `navtab ${t} missing`);
+          assert(html.includes(`id="panel-${t}"`), `panel ${t} missing`);
+        }
+      }],
+      ['theme picker: default xianxia + 4 named themes, all defined in CSS', () => {
+        assert(html.includes('<option value="">Xianxia (original)</option>'), 'default theme option missing');
+        for (const t of ['theme-codex', 'theme-jade', 'theme-ember', 'theme-ink']) {
+          assert(html.includes(`value="${t}"`), `picker option ${t} missing`);
+          assert(themesSrc.includes(`body.${t} {`), `CSS block body.${t} missing`);
+        }
+      }],
+      ['ui.js runOptimizer consumes window.getOptimizerInventory (one-pool wiring)', () => {
+        assert(uiSrc.includes('window.getOptimizerInventory'), 'optimizer inventory hook missing in ui.js');
+      }],
+      ['forum privacy gate: zero poster names in the shipped page', () => {
+        const banned = ['salt', '5enko', 'Primortal dao', 'dddat', 'Takaki', 'lllolyll',
+          'wiangxiao', 'asuraeats', 'Genesis', 'Supreme Demon Venerable', 'Kiriva'];
+        for (const name of banned) {
+          const re = new RegExp(`(^|[^a-z0-9])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9]|$)`, 'i');
+          assert(!re.test(html), `poster name "${name}" leaked into index.html`);
+        }
+      }],
   ]);
 
   // ---------- Summary ----------

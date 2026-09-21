@@ -111,10 +111,11 @@ async function runOptimizer() {
     const maxPills = maxPillsInput === "" ? Infinity : (Number.isFinite(maxPillsParsed) ? maxPillsParsed : Infinity);
     const maxSize = 3;
 
-    const inv = {};
-    for (const [p, q] of Object.entries(inventoryState)) { 
-      if (q > 0) inv[p] = q; 
-    }
+    // Planner-aware inventory: if the Pill Planner has reserved herbs,
+    // the optimizer only sees what's LEFT after the planned pills.
+    const inv = (typeof window.getOptimizerInventory === 'function')
+      ? window.getOptimizerInventory()
+      : (() => { const o = {}; for (const [p, q] of Object.entries(inventoryState)) { if (q > 0) o[p] = q; } return o; })();
 
     const allPills = await generateAllDerivations(inv, minDuration, maxSize, minQi, currentCalcMode);
     currentBestSet = await findBestSet(allPills, inv, maxPills);
@@ -517,6 +518,47 @@ function debouncedSaveInventory() {
   clearTimeout(saveTimeout);
   saveTimeout = setTimeout(saveInventory, 1000);
 }
+
+// ------------------------------------------------------------
+// 7b. NAV TABS + THEME PICKER (codex fusion)
+// ------------------------------------------------------------
+
+const NAV_TABS = ['optimizer', 'planner', 'codex', 'herbs', 'forum'];
+
+function selectNavTab(name, push) {
+  if (!NAV_TABS.includes(name)) name = 'optimizer';
+  for (const t of NAV_TABS) {
+    const btn = document.querySelector(`.navtab[data-tab="${t}"]`);
+    const panel = document.getElementById('panel-' + t);
+    if (btn) btn.setAttribute('aria-selected', String(t === name));
+    if (panel) panel.hidden = (t !== name);
+  }
+  if (push && location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
+}
+
+function applyTheme(theme) {
+  document.body.classList.remove('theme-codex', 'theme-jade', 'theme-ember', 'theme-ink');
+  if (theme) document.body.classList.add(theme);
+  try { localStorage.setItem('alchemyTheme', theme); } catch (e) {}
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  // restore saved theme
+  let savedTheme = '';
+  try { savedTheme = localStorage.getItem('alchemyTheme') || ''; } catch (e) {}
+  if (savedTheme) applyTheme(savedTheme);
+  const picker = document.getElementById('theme-picker');
+  if (picker) {
+    picker.value = savedTheme;
+    picker.addEventListener('change', () => applyTheme(picker.value));
+  }
+
+  // nav tabs
+  document.querySelectorAll('.navtab').forEach(btn => {
+    btn.addEventListener('click', () => selectNavTab(btn.dataset.tab, true));
+  });
+  selectNavTab((location.hash || '').slice(1), false);
+});
 
 document.addEventListener('DOMContentLoaded', initUI);
 

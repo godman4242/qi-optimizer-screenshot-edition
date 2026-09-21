@@ -272,6 +272,55 @@ check('optimiser produced a pill set from the imported inventory', pills > 0, `$
 check('craft copilot rendered alongside the results',
   await page.locator('#craft-copilot').count() === 1);
 
+// ---- Pill Planner: one pool, visibly reduced (real browser) ----
+await page.evaluate(() => {
+  for (const name of Object.keys(PLANTS)) setQty(name, 0);
+  setQty('Spirit Spring Herb', 40); setQty('Silverleaf Herb', 10);
+  setQty('Cloud Mist Herb', 40); setQty('Wild Spirit Grass', 20);
+  setQty('Ironbone Grass', 4); setQty('Crimson Flame Mushroom', 4);
+  localStorage.removeItem('codexPlanner.v1');
+  plannerPlan = []; savePlannerPlan();
+});
+const poolBefore = await page.evaluate(() => window.getOptimizerInventory()['Silverleaf Herb']);
+check('before planning, the optimizer pool holds all 10 Silverleaf', poolBefore === 10, `got ${poolBefore}`);
+await page.locator('.navtab[data-tab="planner"]').click();
+await page.locator('#planner-pill').selectOption('Fury Pill');
+await page.locator('#planner-count').fill('2');
+await page.locator('#planner-add').click();
+await page.waitForSelector('#planner-list .pl-item');
+const poolAfter = await page.evaluate(() => window.getOptimizerInventory()['Silverleaf Herb']);
+check('planning 2 Fury Pills reserves 4 Silverleaf out of the SAME pool (10 → 6)',
+  poolAfter === 6, `got ${poolAfter}`);
+const reservedNote = await page.locator('#planner-reserved').innerText();
+check('the reserved-herbs note names Silverleaf with the reserved count',
+  /4×\s*Silverleaf Herb/.test(reservedNote), reservedNote);
+const shortage = await page.locator('#planner-note').innerText();
+check('the stash covers the plan, so no shortage is flagged', /covers every planned pill/.test(shortage), shortage);
+
+// ---- Pill Codex: the Crafted checkbox deducts exactly once ----
+await page.locator('.navtab[data-tab="codex"]').click();
+await page.locator('#codex-q').fill('Mistveil');
+await page.waitForSelector('.cx-card[data-pill="Mistveil Focus Pill"]');
+const silverBefore = await page.evaluate(() => inventoryState['Silverleaf Herb']);
+await page.locator('.cx-card[data-pill="Mistveil Focus Pill"] input[data-codex-pill]').check();
+const silverCrafted = await page.evaluate(() => inventoryState['Silverleaf Herb']);
+check('ticking Crafted deducts the pill\'s herbs exactly once (−1 Silverleaf)',
+  silverBefore - silverCrafted === 1, `${silverBefore} → ${silverCrafted}`);
+await page.locator('.cx-card[data-pill="Mistveil Focus Pill"] input[data-codex-pill]').uncheck();
+const silverBack = await page.evaluate(() => inventoryState['Silverleaf Herb']);
+check('unticking gives the herbs back', silverBack === silverBefore, `${silverBack}`);
+
+// ---- theme picker swaps the look and remembers it ----
+await page.locator('#theme-picker').selectOption('theme-codex');
+const themed = await page.evaluate(() => document.body.classList.contains('theme-codex'));
+const savedTheme = await page.evaluate(() => localStorage.getItem('alchemyTheme'));
+check('picking the Codex theme applies it to the body and saves the choice',
+  themed && savedTheme === 'theme-codex');
+await page.locator('#theme-picker').selectOption('');
+check('the default xianxia theme is selectable again (no theme class left on body)',
+  await page.evaluate(() => !['theme-codex', 'theme-jade', 'theme-ember', 'theme-ink']
+    .some(c => document.body.classList.contains(c))));
+
 // ---- no errors anywhere in that whole journey ----
 const unique = [...new Set(errors)];
 check('no console errors or failed requests during the whole flow', unique.length === 0,

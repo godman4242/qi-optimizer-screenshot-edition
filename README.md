@@ -61,9 +61,29 @@ A sticky panel above the results that walks you through the optimal set one craf
 - Warns when two overlapping screenshots disagree about a count, instead of silently adding them together
 - Enter to apply, Esc to cancel
 
+### 🧾 Pill Planner — one stash, never two
+Pick the pills *you* actually want to make, and how many. Their herbs are **reserved out of the same stash** the QiMulti optimizer optimizes against:
+
+- Hold enough for 20 Mistveil Focus, but plan 10 permanent-strength pills that share a herb? The optimizer now sees only enough for fewer Mistveil Focus — the reduction is visible and live.
+- The plan persists (localStorage) and re-checks itself against your current stash, warning on shortages.
+- Crafting/planning and optimizing are never separate pools: `window.getOptimizerInventory()` is the single source the optimizer reads.
+
+### 📚 Pill Codex & Herb Codex
+New-player-friendly reference tabs, fully offline:
+
+- **Pill Codex** — every recipe with emoji icons, plain-English effect lines ("Qi you gain", "Damage", durations in min/h), searchable by pill *or* herb name, filterable by stat/rarity, sortable, with a live "✓ Herbs in stock — can make N" / "✗ Missing herbs" indicator against your current inventory.
+- **Herb Codex** — every herb by family (Vitality/Endurance/Agility/Spirit) with rarity, score and how many pills use it.
+- The **Crafted** checkbox on a codex card deducts that pill's herbs from your inventory exactly once (untick to give them back) — the same single-pool rule as the optimizer's own Done button.
+
+### 📡 Forum Intel
+Community findings (best-in-slot pills, max-duration recipes, tier-9 recipe drift, pointers to the community PDFs), paraphrased to **plain facts with dates only** — zero usernames, zero quoted chat handles, nothing that identifies a poster.
+
+### 🎨 Theme picker
+Five looks in the header dropdown: **Xianxia (original)** — the default, so existing users keep their look — plus **Pill Codex** (parchment & gold), **Jade Sanctum**, **Ember Forge**, and **Ashen Void**. Your choice is remembered per browser.
+
 ### Everything from the original still works
 
-Smart derivation engine (Heavenly/Imperfect paths), inventory constraints, unique-effects validation, the GRASP solver, and the crafting tracker — see the [original README](https://github.com/Hitghul/alchemy-tool#features).
+Smart derivation engine (Heavenly/Imperfect paths), inventory constraints, unique-effects validation, the GRASP solver, and the crafting tracker — see the [original README](https://github.com/Hitghul/alchemy-tool#features) for details. The app now runs as **five tabs** (Optimizer / Pill Planner / Pill Codex / Herb Codex / Forum Intel) in one page — the Codex's own duplicate optimizer page is gone; there is a single optimizer.
 
 ## 🌐 Live version
 
