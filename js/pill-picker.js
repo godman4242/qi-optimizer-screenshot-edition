@@ -52,7 +52,7 @@ function pillPickerCardHTML(r) {
 
   return `<button type="button" class="pk-card rar-${topRarity}${ok ? " can" : ""}" data-pick="${escHtml(r.name)}"
       aria-pressed="false" title="${escHtml(r.name)} — ${escHtml(art.label)}">
-    <span class="pk-img"><img src="${art.file}" alt="" loading="lazy" width="56" height="56"></span>
+    <span class="pk-img"><img src="${art.file}" alt="" width="56" height="56"></span>
     <span class="pk-name">${escHtml(r.name)}</span>
     <span class="pk-badge b-${escHtml(pickerStatKey(r))}">${escHtml(art.label)}</span>
     <ul class="pk-effects">${effects}</ul>
