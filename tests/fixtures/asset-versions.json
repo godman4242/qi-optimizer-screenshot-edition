@@ -4,8 +4,12 @@
     "sha": "f4356ce63ad4"
   },
   "css/codex-themes.css": {
+    "version": "1.1",
+    "sha": "23fa2dc26972"
+  },
+  "css/pill-picker.css": {
     "version": "1.0",
-    "sha": "8d933c56000d"
+    "sha": "6cde9bfb0a3e"
   },
   "vendor/tesseract.min.js": {
     "version": "7",
@@ -46,6 +50,10 @@
   "js/planner.js": {
     "version": "1.0",
     "sha": "2ea2f39832af"
+  },
+  "js/pill-picker.js": {
+    "version": "1.0",
+    "sha": "2a8d362e782a"
   },
   "js/ui.js": {
     "version": "2.5",

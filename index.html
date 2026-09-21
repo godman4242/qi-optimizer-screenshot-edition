@@ -12,6 +12,7 @@
   
   <link rel="stylesheet" href="css/style.css?v=4.2">
   <link rel="stylesheet" href="css/codex-themes.css?v=1.1">
+  <link rel="stylesheet" href="css/pill-picker.css?v=1.0">
   <script>/* GTM removed for self-hosting; shim keeps inline dataLayer.push() handlers harmless */ window.dataLayer = window.dataLayer || [];</script>
 </head>
 <body>
@@ -110,7 +111,7 @@
   <div class="section-title">🧾 Pill Planner — reserve herbs, then optimize with the rest</div>
   <p class="pl-intro">Pick the pills <i>you</i> actually want to make, and how many. Their herbs are <b>reserved out of the same stash</b> the QiMulti optimizer uses — so if your herbs could make 20 Mistveil Focus but you plan 10 of something else, the optimizer now sees only enough for 10 Mistveil Focus. One pool, never two.</p>
   <div class="planner-add">
-    <div class="cx-field grow">
+    <div class="cx-field pk-sr">
       <label for="planner-pill">Pill</label>
       <select id="planner-pill"></select>
     </div>
@@ -121,6 +122,7 @@
     <button class="btn btn-primary" id="planner-add">➕ Add to plan</button>
     <button class="cx-btn" id="planner-clear">Clear plan</button>
   </div>
+  <div id="planner-picker" class="pk-grid" role="group" aria-label="Choose a pill to plan"></div>
   <div class="pl-craft-note" id="planner-note" hidden></div>
   <div class="pl-reserved-note" id="planner-reserved" hidden></div>
   <div class="pl-list" id="planner-list"></div>
@@ -276,6 +278,7 @@
 <script src="js/backup.js?v=1.1"></script>
 <script src="js/codex-ui.js?v=1.0"></script>
 <script src="js/planner.js?v=1.0"></script>
+<script src="js/pill-picker.js?v=1.0"></script>
 <script src="js/ui.js?v=2.5"></script>
 </body>
 </html>

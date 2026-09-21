@@ -1,0 +1,130 @@
+/* ============================================================
+   PILL PICKER — visual card grid for the Pill Planner
+   ============================================================ */
+
+/* hide the native select accessibly (not display:none — keeps AT + tests) */
+.pk-sr {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  clip: rect(0 0 0 0); clip-path: inset(50%);
+  overflow: hidden; white-space: nowrap;
+}
+
+.pk-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.pk-card {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  grid-template-areas:
+    "img name"
+    "img badge"
+    "fx  fx"
+    "cost cost"
+    "afford afford";
+  gap: 4px 10px;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: linear-gradient(180deg, var(--bg-card2), var(--bg-card));
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: border-color .15s, transform .15s, box-shadow .15s;
+}
+.pk-card:hover { border-color: var(--border-glow); transform: translateY(-1px); }
+.pk-card[aria-pressed="true"] {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 1px var(--gold), 0 0 14px rgba(212, 169, 78, .18);
+}
+.pk-card:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+/* rarity left-edge accent (same visual language as codex pills) */
+.pk-card.rar-L { border-left: 3px solid var(--rarity-L); }
+.pk-card.rar-E { border-left: 3px solid var(--rarity-E); }
+.pk-card.rar-R { border-left: 3px solid var(--rarity-R); }
+.pk-card.rar-U { border-left: 3px solid var(--rarity-U); }
+.pk-card.rar-C { border-left: 3px solid var(--rarity-C); }
+
+.pk-card .pk-img {
+  grid-area: img;
+  width: 44px; height: 44px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, .03);
+  border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+}
+.pk-card .pk-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.pk-card .pk-name {
+  grid-area: name;
+  font-weight: 600;
+  color: var(--gold-light);
+  font-size: 14px;
+  line-height: 1.25;
+}
+.pk-card .pk-badge {
+  grid-area: badge;
+  justify-self: start;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .4px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+}
+
+/* stat badge colors */
+.pk-badge.b-QiMulti { color: #a78bfa; }
+.pk-badge.b-Vitality { color: #5ecf7a; }
+.pk-badge.b-Speed { color: #5ab8d4; }
+.pk-badge.b-Strength { color: #e05555; }
+.pk-badge.b-Lifespan { color: #d4a94e; }
+
+.pk-card .pk-effects {
+  grid-area: fx;
+  list-style: none;
+  margin: 4px 0 0; padding: 0;
+  font-size: 12.5px;
+}
+.pk-card .pk-fx .pk-dur { color: var(--text-muted); }
+.pk-card .pk-fx.death { color: var(--red); }
+
+.pk-card .pk-cost {
+  grid-area: cost;
+  display: flex; flex-wrap: wrap; gap: 5px;
+  margin-top: 6px;
+  font-size: 11.5px;
+}
+.pk-ing {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .02);
+  white-space: nowrap;
+}
+.pk-ing .q { color: var(--text-muted); }
+.pk-ing.short { border-color: rgba(224, 85, 85, .55); }
+.pk-ing.short::after { content: "⚠"; color: var(--red); font-size: 10px; }
+
+.pk-card .pk-afford { grid-area: afford; margin-top: 7px; font-size: 12px; }
+.pk-card .pk-afford.ok { color: var(--green); }
+.pk-card .pk-afford.no { color: #f0a0a0; }
+
+/* afford glow on can-craft cards */
+.pk-card.can { border-color: rgba(94, 207, 122, .35); }
+
+@media (max-width: 640px) {
+  .pk-grid { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 480px) {
+  .pk-grid { grid-template-columns: 1fr; }
+}
