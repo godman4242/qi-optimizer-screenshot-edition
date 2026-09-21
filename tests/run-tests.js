@@ -482,6 +482,11 @@ async function section(title, tests) {
       ['ui.js runOptimizer consumes window.getOptimizerInventory (one-pool wiring)', () => {
         assert(uiSrc.includes('window.getOptimizerInventory'), 'optimizer inventory hook missing in ui.js');
       }],
+      ['recipe sources: official Trello credited, stale "recipes not known" claim gone', () => {
+        assert(html.includes('https://trello.com/b/PELKNRsb/chasing-immortality'), 'official Trello board not credited in index.html');
+        assert(!html.includes('Exact recipes for these two pills are <b>not</b>'), 'stale "recipe unknown" claim still shipped');
+        assert(html.includes('Yin-Yang Reversal'), 'Yin-Yang Reversal recipe missing from Forum Intel');
+      }],
       ['forum privacy gate: zero poster names in the shipped page', () => {
         const banned = ['salt', '5enko', 'Primortal dao', 'dddat', 'Takaki', 'lllolyll',
           'wiangxiao', 'asuraeats', 'Genesis', 'Supreme Demon Venerable', 'Kiriva'];
