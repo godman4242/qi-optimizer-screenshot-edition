@@ -33,11 +33,22 @@ sandbox.document = {
   querySelectorAll: () => [],
   addEventListener: () => {},
 };
+// Minimal <audio> stand-in so audio.js loads headlessly: records which key
+// would be playing, never actually plays. `play()` is monkey-patchable per test.
+sandbox.Audio = class AudioStub {
+  constructor() { this.preload = ''; this.__key = null; this.paused = true; this.ended = false; this.currentTime = 0; }
+  play() { this.paused = false; return Promise.resolve(); }
+  pause() { this.paused = true; }
+  addEventListener() {}
+  set src(v) { this._src = v; }
+  get src() { return this._src || ''; }
+};
 vm.createContext(sandbox);
 
 function load(file) {
   vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), sandbox, { filename: file });
 }
+load('audio.js');
 load('data.js');
 load('alchemy.js');
 load('optimizer.js');
@@ -481,6 +492,54 @@ async function section(title, tests) {
       }],
       ['ui.js runOptimizer consumes window.getOptimizerInventory (one-pool wiring)', () => {
         assert(uiSrc.includes('window.getOptimizerInventory'), 'optimizer inventory hook missing in ui.js');
+      }],
+      ['sage voice: mute toggle, transcripts modal, replay — all wired', () => {
+        assert(html.includes('id="sage-mute-btn"'), 'mute button missing from header');
+        assert(html.includes('id="sage-dialog-btn"'), 'voice-lines button missing from header');
+        assert(html.includes('id="sage-modal"') && html.includes('id="sage-lines"'), 'sage modal missing from index.html');
+        const AC = sandbox.window.AudioController;
+        assert(AC && typeof AC === 'object', 'AudioController missing');
+        assert(typeof AC.toggleSageMuted === 'function', 'toggleSageMuted missing');
+        assert(typeof AC.replayLine === 'function', 'replayLine missing');
+        const lines = AC.getSageLines();
+        assert(lines.length === 23, `expected 23 sage lines, got ${lines.length}`);
+        const counts = lines.filter(l => l.count).map(l => l.count);
+        assert(counts.length === 22, 'expected 22 milestone lines (welcome + 21 with counts + 1 missing)');
+        for (let i = 0; i < counts.length; i++) {
+          const expected = [1,10,25,50,75,100,125,150,175,200,225,250,275,300,325,350,375,400,425,450,475,500][i];
+          assert(counts[i] === expected, `milestone order broken at index ${i}: ${counts[i]} != ${expected}`);
+        }
+        const missing = lines.find(l => l.missing);
+        assert(missing && missing.count === 200, 'achievement_200 must be flagged missing');
+        for (const l of lines) {
+          if (!l.missing) assert(l.text && l.text.length > 20, `empty transcript for ${l.key}`);
+        }
+      }],
+      ['sage mute: blocks queued sage lines, passes sound effects, replay bypasses mute', () => {
+        const AC = sandbox.window.AudioController;
+        const played = [];
+        const Stub = sandbox.Audio;
+        const origPlay = Stub.prototype.play;
+        Stub.prototype.play = function () { played.push(this.src.split('/').pop().replace('.mp3','')); return Promise.resolve(); };
+        try {
+          AC.setSageMuted(true);
+          assert(AC.isSageMuted() === true, 'mute state did not persist in-session');
+          AC.playWelcome();                       // sage line, muted → dropped
+          AC.playDone();                          // sound effect + queued achievement_1, muted
+          AC.replayLine('achievement_1');         // explicit replay → must play despite mute
+          assert(played.includes('achievement_1'), 'replayLine must bypass the mute');
+          assert(!played.includes('welcome'), 'muted welcome must not play');
+          assert(played.filter(k => k === 'done').length === 1, 'done SFX must still play while sage is muted');
+          // craft count incremented by playDone even though the achievement line was muted:
+          const unlocked = AC.getUnlockedAchievements();
+          assert(unlocked.has(1), 'milestone must still unlock while muted (so the modal shows ✓)');
+          AC.setSageMuted(false);
+          AC.playWelcome();
+          assert(played.includes('welcome'), 'unmuted welcome must play');
+        } finally {
+          Stub.prototype.play = origPlay;
+          AC.resetState();
+        }
       }],
       ['recipe sources: official Trello credited, stale "recipes not known" claim gone', () => {
         assert(html.includes('https://trello.com/b/PELKNRsb/chasing-immortality'), 'official Trello board not credited in index.html');

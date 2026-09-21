@@ -10,7 +10,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   
-  <link rel="stylesheet" href="css/style.css?v=4.2">
+  <link rel="stylesheet" href="css/style.css?v=4.3">
   <link rel="stylesheet" href="css/codex-themes.css?v=1.1">
   <link rel="stylesheet" href="css/pill-picker.css?v=1.0">
   <script>/* GTM removed for self-hosting; shim keeps inline dataLayer.push() handlers harmless */ window.dataLayer = window.dataLayer || [];</script>
@@ -31,6 +31,8 @@
   <div class="logo">⚗️ Qi Optimizer</div>
   <div class="subtitle">Dao of Alchemy — Best Pill Set</div>
   <div class="theme-row">
+    <button class="cx-btn" id="sage-mute-btn" aria-pressed="false" title="Mute the alchemy sage’s voice lines (sound effects stay on)">🔊 Sage voice</button>
+    <button class="cx-btn" id="sage-dialog-btn" title="Show everything the alchemy sage says, and replay any line">🗣️ Sage’s voice lines</button>
     <label for="theme-picker">Theme</label>
     <select id="theme-picker" class="theme-picker">
       <option value="">Xianxia (original)</option>
@@ -268,7 +270,7 @@
      loaded last, which only worked because the warm-up is deferred to an idle
      callback — one refactor away from a "Tesseract.js failed to load". -->
 <script src="vendor/tesseract.min.js?v=7"></script>
-<script src="js/audio.js?v=2.4"></script>
+<script src="js/audio.js?v=2.5"></script>
 <script src="js/data.js?v=2.3"></script>
 <script src="js/alchemy.js?v=2.3"></script>
 <script src="js/optimizer.js?v=2.5"></script>
@@ -279,5 +281,16 @@
 <script src="js/planner.js?v=1.0"></script>
 <script src="js/pill-picker.js?v=1.1"></script>
 <script src="js/ui.js?v=2.5"></script>
+
+<div id="sage-modal" class="sage-modal" hidden role="dialog" aria-modal="true" aria-labelledby="sage-modal-title">
+  <div class="sage-modal-card">
+    <div class="sage-modal-head">
+      <h2 id="sage-modal-title">🗣️ The Sage’s Voice Lines</h2>
+      <button class="cx-btn" id="sage-modal-close" aria-label="Close">✕ Close</button>
+    </div>
+    <p class="sage-modal-sub">Every line the alchemy sage says, unlocked or not — replay any of them without crafting a single pill. ✓ marks milestones you’ve already reached.</p>
+    <div id="sage-lines"></div>
+  </div>
+</div>
 </body>
 </html>

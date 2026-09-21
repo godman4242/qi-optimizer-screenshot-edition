@@ -67,6 +67,132 @@ const achievements = [1, 10, 25, 50, 75, 100, 125, 150, 175, 200, 225, 250, 275,
 // Tracks unlocked achievements
 let unlockedAchievements = new Set(); 
 
+// ------------------------------------------------------------
+// SAGE VOICE — mute toggle + transcripts + replay
+// The sage's voice = welcome + all achievement_N lines. Sound effects
+// (done / bin / optimizing / optimize_end) are NOT his voice and never mute.
+// Transcripts below were machine-transcribed from the actual MP3s
+// (faster-whisper base.en), then spot-checked by ear.
+// ------------------------------------------------------------
+const SAGE_MUTED_KEY = 'alchemySageMuted';
+let sageMuted = false;
+
+function loadSageMuted() {
+  try { sageMuted = localStorage.getItem(SAGE_MUTED_KEY) === '1'; } catch (e) {}
+}
+function saveSageMuted() {
+  try { localStorage.setItem(SAGE_MUTED_KEY, sageMuted ? '1' : '0'); } catch (e) {}
+}
+function isSageLine(key) {
+  return key === 'welcome' || /^achievement_/.test(key);
+}
+
+const SAGE_LINES = [
+  { key: 'welcome', count: null, label: 'Welcome (first visit)', text: 'The secrets of the alchemy art hold too much peril for the vulgar throng. Such concoctions disrupt the fabric of the worldly order. I bestow this tool upon you. Let profound wisdom guide your hand in its use.' },
+  { key: 'achievement_1', count: 1, label: '1 pill', text: 'Have you just made your first pill? Congratulations young alchemist.' },
+  { key: 'achievement_10', count: 10, label: '10 pills', text: "I strongly recommend that you do not exceed 10 pills. It's dangerous for the stomach." },
+  { key: 'achievement_25', count: 25, label: '25 pills', text: "If you take all 25 pills at once, you'll get terrible diarrhea." },
+  { key: 'achievement_50', count: 50, label: '50 pills', text: "I don't think I can stop your madness now. You'll probably cook another 50 pills." },
+  { key: 'achievement_75', count: 75, label: '75 pills', text: '75 pills. Alchemy is a sacred meditation, not an assembly line. Are you even looking at the ingredients anymore?' },
+  { key: 'achievement_100', count: 100, label: '100 pills', text: 'I swear, I created a monster. What are you trying to do with these 100 pills?' },
+  { key: 'achievement_125', count: 125, label: '125 pills', text: '125 pills. I am officially revoking your title as a cultivator. You are a factory worker.' },
+  { key: 'achievement_150', count: 150, label: '150 pills', text: '150 pills, I sent a pigeon to the demonic sect. Even they replied that your production rate is unethical.' },
+  { key: 'achievement_175', count: 175, label: '175 pills', text: "If you consume all of these 175 pills, you won't ascend to the heavens. You will just explode and stain my floor." },
+  { key: 'achievement_200', count: 200, label: '200 pills', text: '', missing: true },
+  { key: 'achievement_225', count: 225, label: '225 pills', text: '225 pills. There is no profound doubt in this. You are just clicking and destroying the local flora.' },
+  { key: 'achievement_250', count: 250, label: '250 pills', text: "The energy from those 250 pills is warping reality. I'm having hallucinations. Are you trying to start a drug trafficking operation?" },
+  { key: 'achievement_275', count: 275, label: '275 pills', text: '275 pills. Cultivators are supposed to absorb the essence of nature gently. You are just aggressively hoarding it.' },
+  { key: 'achievement_300', count: 300, label: '300 pills', text: '300 pills, even the cheapest brothels in the capital, don\u2019t push this many stimulants. What exactly is your end game here?' },
+  { key: 'achievement_325', count: 325, label: '325 pills', text: 'If you swallow even a fraction of these 325 pills, your meridians won\u2019t just shatter. They will violently exit your body through your backside.' },
+  { key: 'achievement_350', count: 350, label: '350 pills', text: '350 pills. If the Emperor\u2019s guards find this stash, I am telling them you held me hostage. I refuse to be beheaded because of your hoarding fetish.' },
+  { key: 'achievement_375', count: 375, label: '375 pills', text: '375 pills. I\u2019ve seen men castrate themselves to achieve a pure cultivation state, and yet what you\u2019re doing here is somehow more pathetic.' },
+  { key: 'achievement_400', count: 400, label: '400 pills', text: '400 pills. If you put half as much effort into finding a partner, as you do into clicking that cauldron, I wouldn\u2019t have to listen to the sound of your lonely grinding all night.' },
+  { key: 'achievement_425', count: 425, label: '425 pills', text: '425 pills. The heavens haven\u2019t struck you with lightning yet because they\u2019re too busy laughing at how much time you\u2019re wasting.' },
+  { key: 'achievement_450', count: 450, label: '450 pills', text: '450 pills. If the heavens ask, I never taught you. We never met. I am just a hallucination in your drug-addled mind.' },
+  { key: 'achievement_475', count: 475, label: '475 pills', text: '475 pills. Just eat them all. Do it. Vomit your own organs. Rupture your core. And let me finally find a disciple who isn\u2019t a mindless degenerate.' },
+  { key: 'achievement_500', count: 500, label: '500 pills', text: 'I think with those 500 pills you have enough to start a drug network. I wonder what would happen if you ate them all at once. But please don\u2019t do either of those things.' }
+];
+
+loadSageMuted();
+
+// ---- Sage modal + mute button wiring (page may not exist in test sandbox) ----
+function updateSageMuteBtn() {
+  const btn = document.getElementById('sage-mute-btn');
+  if (!btn) return;
+  btn.textContent = sageMuted ? '\uD83D\uDD07 Sage muted' : '\uD83D\uDD0A Sage voice';
+  btn.setAttribute('aria-pressed', sageMuted ? 'true' : 'false');
+  btn.title = sageMuted ? 'Unmute the alchemy sage\u2019s voice lines' : 'Mute the alchemy sage\u2019s voice lines (sound effects stay on)';
+}
+
+function buildSageModal() {
+  const wrap = document.getElementById('sage-lines');
+  if (!wrap) return;
+  wrap.textContent = '';
+  const unlocked = new Set(unlockedAchievements);
+  for (const line of SAGE_LINES) {
+    const row = document.createElement('div');
+    row.className = 'sage-line' + (unlocked.has(line.count) ? ' sage-line-unlocked' : '');
+
+    const head = document.createElement('div');
+    head.className = 'sage-line-head';
+    const label = document.createElement('span');
+    label.className = 'sage-line-label';
+    label.textContent = (unlocked.has(line.count) ? '\u2713 ' : '') + line.label;
+    head.appendChild(label);
+
+    if (!line.missing) {
+      const play = document.createElement('button');
+      play.className = 'cx-btn sage-replay-btn';
+      play.textContent = '\u25B6 Replay';
+      play.title = 'Play this voice line now (works even when the sage is muted)';
+      play.addEventListener('click', () => window.AudioController.replayLine(line.key));
+      head.appendChild(play);
+    } else {
+      const miss = document.createElement('span');
+      miss.className = 'sage-line-missing';
+      miss.textContent = 'no recording in the original assets';
+      head.appendChild(miss);
+    }
+    row.appendChild(head);
+
+    const text = document.createElement('p');
+    text.className = 'sage-line-text';
+    text.textContent = line.missing
+      ? 'The original game never shipped an MP3 for this milestone \u2014 the sage goes silent at exactly 200 pills.'
+      : '\u201C' + line.text + '\u201D';
+    row.appendChild(text);
+    wrap.appendChild(row);
+  }
+}
+
+function initSageUI() {
+  const muteBtn = document.getElementById('sage-mute-btn');
+  if (muteBtn) {
+    updateSageMuteBtn();
+    muteBtn.addEventListener('click', () => window.AudioController.toggleSageMuted());
+  }
+  const modal = document.getElementById('sage-modal');
+  const openBtn = document.getElementById('sage-dialog-btn');
+  const closeBtn = document.getElementById('sage-modal-close');
+  if (openBtn && modal) {
+    openBtn.addEventListener('click', () => { buildSageModal(); modal.hidden = false; });
+  }
+  if (closeBtn && modal) {
+    closeBtn.addEventListener('click', () => { modal.hidden = true; });
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.hidden = true; });
+  }
+  if (modal) {
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !modal.hidden) modal.hidden = true;
+    });
+  }
+}
+if (typeof document !== 'undefined' && document.addEventListener) {
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initSageUI);
+  else initSageUI();
+}
+
+
 // Load saved state from localStorage
 function loadAudioState() {
   try {
@@ -99,8 +225,11 @@ function playInterruptible(key) {
   a.play().catch(e => console.warn(`Autoplay prevented for ${key}:`, e));
 }
 
-// Add sound to the sequential queue
-function playQueued(key) {
+// Add sound to the sequential queue. `force` bypasses the sage mute —
+// used by the voice-lines modal's Replay buttons so a muted player can
+// still audition a line on demand.
+function playQueued(key, force) {
+  if (sageMuted && isSageLine(key) && !force) return;
   queue.push(key);
   processQueue();
 }
@@ -138,6 +267,26 @@ function processQueue() {
 // Expose the controller to the global scope for UI interactions
 window.AudioController = {
   playWelcome: () => playQueued('welcome'),
+
+  // ---- Sage voice controls ----
+  isSageMuted: () => sageMuted,
+  setSageMuted: (v) => {
+    sageMuted = !!v;
+    saveSageMuted();
+    updateSageMuteBtn();
+  },
+  toggleSageMuted: () => window.AudioController.setSageMuted(!sageMuted),
+
+  // Replay one line out-of-queue, ignoring the mute (explicit user action).
+  replayLine: (key) => {
+    const a = getAudio(key);
+    if (!a) return;
+    a.currentTime = 0;
+    a.play().catch(e => console.warn(`Autoplay prevented for replay ${key}:`, e));
+  },
+
+  getSageLines: () => SAGE_LINES.map(l => ({ ...l })),
+  getUnlockedAchievements: () => new Set(unlockedAchievements),
   
   playBin: () => playInterruptible('bin'),
   
