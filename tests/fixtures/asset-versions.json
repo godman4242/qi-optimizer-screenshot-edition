@@ -1,7 +1,7 @@
 {
   "css/style.css": {
-    "version": "4.2",
-    "sha": "f4356ce63ad4"
+    "version": "4.3",
+    "sha": "575fc908f51d"
   },
   "css/codex-themes.css": {
     "version": "1.1",
@@ -16,8 +16,8 @@
     "sha": "000c27d9cd0d"
   },
   "js/audio.js": {
-    "version": "2.4",
-    "sha": "ff05ae5c97e0"
+    "version": "2.6",
+    "sha": "af9b29ee4372"
   },
   "js/data.js": {
     "version": "2.3",
@@ -52,8 +52,8 @@
     "sha": "2ea2f39832af"
   },
   "js/pill-picker.js": {
-    "version": "1.0",
-    "sha": "2a8d362e782a"
+    "version": "1.1",
+    "sha": "76fdb6faf078"
   },
   "js/ui.js": {
     "version": "2.5",

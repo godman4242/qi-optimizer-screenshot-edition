@@ -541,6 +541,35 @@ async function section(title, tests) {
           AC.resetState();
         }
       }],
+      ['sage mute: STOPS an in-flight sage line and drains queued ones (the reported live bug)', () => {
+        const AC = sandbox.window.AudioController;
+        const Stub = sandbox.Audio;
+        const origPlay = Stub.prototype.play;
+        const instances = [];
+        Stub.prototype.play = function () { instances.push(this); this.paused = false; return Promise.resolve(); };
+        try {
+          // The stub never fires 'ended', so any earlier queued line has the
+          // queue jammed; passing through mute ONCE clears it (part of the fix).
+          AC.setSageMuted(true);
+          AC.setSageMuted(false);
+          instances.length = 0;
+          AC.playWelcome();                       // queue plays welcome immediately
+          const welcome = instances.find(a => a.src.includes('welcome'));
+          assert(welcome, 'welcome audio element was never created');
+          assert(welcome.paused === false, 'welcome should be in-flight before mute');
+          AC.setSageMuted(true);                  // THE REPORTED SCENARIO: mute mid-line
+          assert(welcome.paused === true, 'muting must pause the in-flight welcome line');
+          assert(welcome.currentTime === 0, 'paused line must be reset to the start');
+          // Unmute → the SAME element plays again cleanly (queue not jammed):
+          instances.length = 0;
+          AC.setSageMuted(false);
+          AC.playWelcome();
+          assert(instances.some(a => a.src.includes('welcome')), 'queue must still work after mid-line mute (no deadlock)');
+        } finally {
+          Stub.prototype.play = origPlay;
+          AC.resetState();
+        }
+      }],
       ['recipe sources: official Trello credited, stale "recipes not known" claim gone', () => {
         assert(html.includes('https://trello.com/b/PELKNRsb/chasing-immortality'), 'official Trello board not credited in index.html');
         assert(!html.includes('Exact recipes for these two pills are <b>not</b>'), 'stale "recipe unknown" claim still shipped');

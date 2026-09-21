@@ -208,10 +208,15 @@ function loadAudioState() {
 
 // Save state to localStorage
 function saveAudioState() {
-  localStorage.setItem('alchemyAudioState', JSON.stringify({
-    craftedCount: craftedCount,
-    unlocked: Array.from(unlockedAchievements)
-  }));
+  // Guarded: a quota-exceeded throw here (Safari private mode, full storage)
+  // propagates into playDone → ui.js's togglePillDone BEFORE the inventory
+  // deduction runs, so a pill would stay ticked with herbs never deducted.
+  try {
+    localStorage.setItem('alchemyAudioState', JSON.stringify({
+      craftedCount: craftedCount,
+      unlocked: Array.from(unlockedAchievements)
+    }));
+  } catch (e) {}
 }
 
 // Init state on load
@@ -250,12 +255,19 @@ function processQueue() {
 
   a.currentTime = 0;
   
-  // When finished, start the next one
-  a.onended = () => {
+  // When finished — OR when the element errors/stalls out mid-playback —
+  // start the next one. 'ended' alone is not enough: a media error after
+  // play() resolved fires 'error', never 'ended', and the play promise is
+  // already resolved, so the catch below never runs → isQueuePlaying jams
+  // forever and every later queued sound is silently dropped.
+  const advance = () => {
     isQueuePlaying = false;
     a.onended = null;
+    a.onerror = null;
     processQueue();
   };
+  a.onended = advance;
+  a.onerror = advance;
   
   a.play().catch(e => {
     console.warn(`Autoplay prevented for queued ${key}:`, e);
@@ -271,8 +283,34 @@ window.AudioController = {
   // ---- Sage voice controls ----
   isSageMuted: () => sageMuted,
   setSageMuted: (v) => {
+    const wasMuted = sageMuted;
     sageMuted = !!v;
     saveSageMuted();
+    // Muting must silence the sage NOW, not just gate future lines: pause
+    // any in-flight sage line and drop already-queued sage lines. Without
+    // this, clicking mute mid-line reads as "the button did not work".
+    if (sageMuted && !wasMuted) {
+      // Pause in-flight sage audio (welcome / achievement_*).
+      for (const key of Object.keys(audios)) {
+        if (!isSageLine(key)) continue;
+        const a = audios[key];
+        if (a && !a.paused) {
+          // Detach the queue's onended first so pausing doesn't leave the
+          // queue waiting on an 'ended' that never fires, then reset.
+          a.onended = null;
+          a.pause();
+          a.currentTime = 0;
+        }
+      }
+      // A paused line may have been the queue's current item; un-jam it.
+      isQueuePlaying = false;
+      // Purge already-queued sage lines (done/bin/optimize_end stay).
+      for (let i = queue.length - 1; i >= 0; i--) {
+        if (isSageLine(queue[i])) queue.splice(i, 1);
+      }
+      // If nothing sage is left playing/queued, normal SFX can proceed.
+      processQueue();
+    }
     updateSageMuteBtn();
   },
   toggleSageMuted: () => window.AudioController.setSageMuted(!sageMuted),
@@ -293,7 +331,6 @@ window.AudioController = {
   // Same 'done' clip, but NOT a craft: OCR autofill and similar non-craft
   // confirmations must not push the lifetime craft counter toward milestones.
   playApplied: () => playInterruptible('done'),
-
   playDone: () => {
     playInterruptible('done');
     craftedCount++;
